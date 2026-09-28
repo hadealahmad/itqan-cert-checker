@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# env — never commit real secrets
+.env
+.env.local
+.env.*.local
+
+# database
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# generated certificates (recreated on demand from the database)
+storage/
+
+# design source — the live design lives in Figma; the extracted artwork is in
+# public/cert/. Add it back with: git add -f "شهادة تقدير.fig"
+*.fig
+
+# os / editor
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*

@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+data
+storage
+*.log
+.env
+.env.local
+*.fig

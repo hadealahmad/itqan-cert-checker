@@ -1,0 +1,124 @@
+{
+  "_comment": "Geometry of the certificate artwork, captured from Figma node 7:284 (Frame 3). Consumed by scripts/check-assets.ts to verify src/lib/cert-template.ts. Regenerate with: FIGMA_TOKEN=... npm run figma:sync",
+  "file": "https://www.figma.com/design/uwzIOEMK4EQ3sGfvSlzJu0",
+  "frame": {
+    "nodeId": "7:284",
+    "name": "Frame 3",
+    "width": 1920.0,
+    "height": 1358.0
+  },
+  "backgroundGradient": {
+    "type": "GRADIENT_LINEAR",
+    "handles": [
+      [
+        0.5,
+        0.0
+      ],
+      [
+        0.5,
+        1.0
+      ]
+    ],
+    "stops": [
+      {
+        "position": 0.0,
+        "color": "#FFFFFF"
+      },
+      {
+        "position": 1.0,
+        "color": "#F1FFF9"
+      }
+    ],
+    "_note": "Lives on the frame's own fill, not on any child layer."
+  },
+  "assets": {
+    "border": {
+      "nodeId": "7:297",
+      "name": "Group 2",
+      "type": "GROUP",
+      "box": {
+        "x": 47.0,
+        "y": 38.0,
+        "width": 1825.99,
+        "height": 1281.68
+      }
+    },
+    "logosTop": {
+      "nodeId": "7:701",
+      "name": "Group 87",
+      "type": "GROUP",
+      "box": {
+        "x": 125.0,
+        "y": 103.0,
+        "width": 1671.37,
+        "height": 130.0
+      }
+    },
+    "title": {
+      "nodeId": "3:70",
+      "name": "Group 1",
+      "type": "GROUP",
+      "box": {
+        "x": 576.0,
+        "y": 200.0,
+        "width": 768.08,
+        "height": 204.85
+      }
+    },
+    "dividerName": {
+      "nodeId": "7:404",
+      "name": "Group 10",
+      "type": "GROUP",
+      "box": {
+        "x": 626.0,
+        "y": 638.0,
+        "width": 669.0,
+        "height": 69.38
+      }
+    },
+    "campaignLogo": {
+      "nodeId": "7:730",
+      "name": "Group 76",
+      "type": "GROUP",
+      "box": {
+        "x": 610.0,
+        "y": 715.41,
+        "width": 258.41,
+        "height": 107.84
+      }
+    },
+    "iconFile": {
+      "nodeId": "37:26",
+      "name": "file-certificate",
+      "type": "TEXT",
+      "box": {
+        "x": 311.0,
+        "y": 1043.5,
+        "width": 45.0,
+        "height": 45.0
+      }
+    },
+    "iconCalendar": {
+      "nodeId": "37:21",
+      "name": "",
+      "type": "TEXT",
+      "box": {
+        "x": 1778.0,
+        "y": 1043.5,
+        "width": 40.0,
+        "height": 45.0
+      }
+    },
+    "signature": {
+      "nodeId": "37:57",
+      "name": "Rectangle",
+      "type": "RECTANGLE",
+      "box": {
+        "x": 812.0,
+        "y": 1003.0,
+        "width": 294.07,
+        "height": 93.25
+      }
+    }
+  }
+}
