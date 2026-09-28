@@ -1,17 +1,44 @@
 /**
- * End-to-end smoke test against a running dev/prod server.
+ * End-to-end smoke test against a running server.
+ *
+ * This WRITES to whatever database the target server is using: it creates users
+ * and certificates, adds a campaign, and renders PDFs. It refuses to start
+ * without SMOKE_CONFIRM_WRITES=1 so a stray run cannot quietly pollute real
+ * data.
+ *
+ * Preferred — provisions a throwaway database and cleans up afterwards:
+ *
+ *   npm run build && npm run check:e2e
+ *
+ * Against a server you started yourself:
  *
  *   npm run dev            # in one terminal
- *   npm run smoke          # in another
+ *   SMOKE_CONFIRM_WRITES=1 npm run smoke   # in another
  *
  * Drives a real browser through: login → create user → issue certificate →
- * render → download PDF → verify via the QR target. Screenshots land in
- * --out (default /tmp/smoke) so the RTL layout can be eyeballed.
+ * render → download PDF → campaign → duplicate refusal → verify via the QR
+ * target. Screenshots land in --out (default /tmp/smoke) so the RTL layout can
+ * be eyeballed.
  */
 import { mkdir, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { chromium, type Page } from "playwright";
+
+if (process.env.SMOKE_CONFIRM_WRITES !== "1") {
+  console.error(
+    [
+      "This test writes to the target server's database and renders PDFs.",
+      "",
+      "To run it safely against a throwaway database:",
+      "  npm run build && npm run check:e2e",
+      "",
+      "To accept writing to a server you started yourself:",
+      "  SMOKE_CONFIRM_WRITES=1 npm run smoke",
+    ].join("\n"),
+  );
+  process.exit(1);
+}
 
 const BASE = process.env.SMOKE_BASE_URL ?? `http://127.0.0.1:${process.env.SMOKE_PORT ?? "3000"}`;
 const PASSWORD = process.env.ADMIN_PASSWORD ?? "change-me";
@@ -210,6 +237,44 @@ async function main() {
     } else {
       fail("download ZIP", "no download event");
     }
+
+    /* ---------------- programs ---------------- */
+    console.log("\nprograms");
+    await page.goto(`${BASE}/admin/programs`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(600);
+    await page.click('button:has-text("حملة جديدة")');
+    await page.waitForTimeout(500);
+    await page.fill("#program-name", `حملة اختبار ${Date.now() % 10000}`);
+    await page.fill("#program-from", "2026-01-01");
+    await page.fill("#program-to", "2026-12-31");
+    await page.fill("#program-repos", "itqan-org/alpha\nitqan-org/beta\nhttps://github.com/itqan-org/gamma.git");
+    await shot(page, "13-program-dialog");
+    await page.click('button[type="submit"]:has-text("حفظ")');
+    await page.waitForTimeout(2000);
+    if (await page.getByText("حملة اختبار").count()) ok("create program with parsed repos");
+    else fail("create program with parsed repos", "not listed");
+
+    const repoText = (await page.locator("text=itqan-org/").first().textContent()) ?? "";
+    if (repoText.includes("alpha") && repoText.includes("gamma")) {
+      ok("repos parsed: URL and .git suffix accepted");
+    } else {
+      fail("repos parsed", `saw "${repoText.slice(0, 60)}"`);
+    }
+    await shot(page, "14-programs");
+
+    /* ---------------- duplicate rule ---------------- */
+    console.log("\nduplicates");
+    await page.goto(`${BASE}/admin/certs`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(700);
+    await page.click('button:has-text("إصدار شهادة")');
+    await page.waitForTimeout(600);
+    // The same person, same template: must be refused, not duplicated.
+    await page.click(`label:has-text("${unique}")`);
+    await page.click('button[type="submit"]:has-text("إصدار")');
+    await page.waitForTimeout(2500);
+    const dupRows = await page.locator("table tr", { hasText: unique }).count();
+    if (dupRows === 1) ok("a second certificate for the same template is refused");
+    else fail("a second certificate for the same template is refused", `${dupRows} rows`);
 
     /* ---------------- QR is a live link ---------------- */
     console.log("\nqr link");

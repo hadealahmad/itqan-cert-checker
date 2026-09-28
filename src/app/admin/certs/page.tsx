@@ -1,5 +1,6 @@
 import { CertsManager } from "@/components/certs/certs-manager";
 import { listCertificates, listUsers } from "@/lib/certs";
+import { listTemplates, syncTemplateCatalogue } from "@/lib/programs";
 import { db } from "@/lib/db";
 import { certificates } from "@/lib/db/schema";
 import { inArray } from "drizzle-orm";
@@ -7,7 +8,9 @@ import { inArray } from "drizzle-orm";
 export const metadata = { title: "الشهادات" };
 
 export default async function AdminCertsPage() {
+  syncTemplateCatalogue();
   const rows = listCertificates({ limit: 1000 });
+  const templates = listTemplates().map((template) => ({ id: template.id, nameAr: template.nameAr }));
   const users = listUsers({ limit: 2000 }).map((user) => ({ id: user.id, name: user.name }));
 
   // Print tokens power the admin preview link.
@@ -35,7 +38,7 @@ export default async function AdminCertsPage() {
         </p>
       </div>
 
-      <CertsManager rows={rows} users={users} printTokens={tokens} />
+      <CertsManager rows={rows} users={users} templates={templates} printTokens={tokens} />
     </div>
   );
 }

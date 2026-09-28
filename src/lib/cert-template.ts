@@ -1,17 +1,18 @@
 /**
- * Certificate template definition.
+ * The «كود يخدم القرآن» certificate design.
  *
- * Every number here was read directly out of the Figma file
+ * Every coordinate here was read out of the Figma file
  * (https://www.figma.com/design/uwzIOEMK4EQ3sGfvSlzJu0, node 7:284 "Frame 3")
- * via the Figma REST API, and converted from Figma's absolute canvas
- * coordinates to frame-relative coordinates.
+ * and converted from Figma's absolute canvas coordinates to frame-relative
+ * ones. `npm run check:assets` verifies the asset boxes against
+ * assets/figma-geometry.json, and `npm run check:copy` guards the wording.
  *
- * The artwork (border, logos, calligraphy title, campaign line, icons) is
- * exported from Figma as pure-vector SVG. Only the *text* is re-typeset in
- * HTML so it stays selectable in the exported PDF and can change per recipient.
+ * The artwork (border, corner ornaments, both logos, the «شهادة تقدير»
+ * calligraphy, the divider, the Code mark, the three icons) is exported from
+ * Figma as pure-vector SVG. Only the *text* is re-typeset in HTML so it stays
+ * selectable in the exported PDF and can change per recipient.
  *
- * To regenerate after a design change: run `npm run figma:sync` (see
- * scripts/extract-figma.mjs). It rewrites the ASSETS block below.
+ * This layout is shared by every campaign that uses the code-quran template.
  */
 
 export const FRAME = {
@@ -25,18 +26,6 @@ export const FRAME = {
  * has. The literal name stays as a fallback for tooling that reads this file
  * outside the Next.js tree.
  */
-/**
- * Background gradient.
- *
- * This lives on the *frame* in Figma (node 7:284 `fills[0]`), not on any child
- * layer, so walking the node tree misses it entirely. Figma reported:
- *
- *   GRADIENT_LINEAR, handles (0.5, 0) -> (0.5, 1)   i.e. top to bottom
- *   stop 0.00  #FFFFFF
- *   stop 1.00  #F1FFF9
- */
-export const BACKGROUND_GRADIENT = "linear-gradient(to bottom, #FFFFFF 0%, #F1FFF9 100%)";
-
 export const FONT_FAMILY =
   'var(--font-ibm-plex-arabic), "IBM Plex Sans Arabic", sans-serif';
 
@@ -65,10 +54,10 @@ export interface TextSlot {
   y: number;
   width: number;
   /**
-   * When set, the run is centred on this horizontal position and given
-   * `max-width` room instead of being locked into the Figma box. Used for
-   * auto-width single lines so a long recipient name stays optically centred
-   * rather than overflowing a fixed box.
+   * When set, the run is centred on this horizontal position instead of being
+   * locked into the Figma box. Used for auto-width single lines so a long
+   * recipient name stays optically centred, and for the campaign line, which is
+   * centred on its own box rather than on the frame.
    */
   center?: number;
   maxWidth?: number;
@@ -186,39 +175,6 @@ export const DYNAMIC_TEXT = {
     align: "center",
     color: "#255C48",
   },
-  /** Figma node 37:27 — fixed 409px box, left-aligned. */
-  certNumber: {
-    x: 102,
-    y: 1104,
-    width: 409,
-    weight: 300,
-    fontSize: 37,
-    lineHeight: 55.5,
-    align: "left",
-    color: "#000000",
-  },
-  /** Figma node 37:22 — fixed 409px box, right-aligned. */
-  gregorianDate: {
-    x: 1409,
-    y: 1104,
-    width: 409,
-    weight: 300,
-    fontSize: 37,
-    lineHeight: 54.94,
-    align: "right",
-    color: "#000000",
-  },
-  /** Figma node 37:23 — fixed 409px box, right-aligned. */
-  hijriDate: {
-    x: 1409,
-    y: 1161,
-    width: 409,
-    weight: 300,
-    fontSize: 37,
-    lineHeight: 54.94,
-    align: "right",
-    color: "#000000",
-  },
   /**
    * Figma node 7:287 — the campaign sentence, "قد ساهم" for a male recipient
    * and "قد ساهمت" for a female one. See lib/gender-text.ts.
@@ -258,6 +214,39 @@ export const DYNAMIC_TEXT = {
     align: "center",
     color: "#000000",
   },
+  /** Figma node 37:27 — fixed 409px box, left-aligned. */
+  certNumber: {
+    x: 102,
+    y: 1104,
+    width: 409,
+    weight: 300,
+    fontSize: 37,
+    lineHeight: 55.5,
+    align: "left",
+    color: "#000000",
+  },
+  /** Figma node 37:22 — fixed 409px box, right-aligned. */
+  gregorianDate: {
+    x: 1409,
+    y: 1104,
+    width: 409,
+    weight: 300,
+    fontSize: 37,
+    lineHeight: 54.94,
+    align: "right",
+    color: "#000000",
+  },
+  /** Figma node 37:23 — fixed 409px box, right-aligned. */
+  hijriDate: {
+    x: 1409,
+    y: 1161,
+    width: 409,
+    weight: 300,
+    fontSize: 37,
+    lineHeight: 54.94,
+    align: "right",
+    color: "#000000",
+  },
 } satisfies Record<Slot, TextSlot>;
 
 /**
@@ -279,5 +268,36 @@ export const QR = {
   errorCorrectionLevel: "L" as const,
 } as const;
 
+/**
+ * Background gradient.
+ *
+ * This lives on the *frame* in Figma (node 7:284 `fills[0]`), not on any child
+ * layer, so walking the node tree misses it entirely. Figma reported:
+ *
+ *   GRADIENT_LINEAR, handles (0.5, 0) -> (0.5, 1)   i.e. top to bottom
+ *   stop 0.00  #FFFFFF
+ *   stop 1.00  #F1FFF9
+ */
+export const BACKGROUND_GRADIENT = "linear-gradient(to bottom, #FFFFFF 0%, #F1FFF9 100%)";
+
 /** Append the Arabic era marker to the Hijri year, e.g. "١٤٤٨ هـ". */
 export const HIJRI_ERA = "هـ";
+
+/** The template used when nothing more specific is requested. */
+export const DEFAULT_TEMPLATE_SLUG = "code-quran";
+
+/**
+ * A complete certificate design: geometry plus the slug the `templates` table
+ * refers to. One entry per supported layout.
+ */
+export interface TemplateDef {
+  slug: string;
+  nameAr: string;
+  frame: typeof FRAME;
+  fontFamily: string;
+  background: string;
+  qr: typeof QR;
+  assets: Record<string, VectorAsset>;
+  staticText: typeof STATIC_TEXT;
+  dynamicText: Record<Slot, TextSlot>;
+}

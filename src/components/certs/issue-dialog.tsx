@@ -16,6 +16,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { issueCertificatesAction } from "@/lib/actions/certs";
 import { idle, type ActionState } from "@/lib/action-state";
@@ -30,10 +37,12 @@ export function IssueDialog({
   open,
   onOpenChange,
   users,
+  templates,
 }: {
   open: boolean;
   onOpenChange: (next: boolean) => void;
   users: IssuableUser[];
+  templates: Array<{ id: number; nameAr: string }>;
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(
     issueCertificatesAction,
@@ -41,6 +50,7 @@ export function IssueDialog({
   );
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [filter, setFilter] = useState("");
+  const [templateId, setTemplateId] = useState(String(templates[0]?.id ?? ""));
 
   useEffect(() => {
     if (state.ok) {
@@ -75,6 +85,27 @@ export function IssueDialog({
         </DialogHeader>
 
         <form action={formAction} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="issue-template">قالب الشهادة</Label>
+            <Select name="templateId" value={templateId} onValueChange={setTemplateId}>
+              <SelectTrigger id="issue-template">
+                <SelectValue placeholder="اختر القالب" />
+              </SelectTrigger>
+              <SelectContent>
+                {templates.map((template) => (
+                  <SelectItem key={template.id} value={String(template.id)}>
+                    {template.nameAr}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* Radix Select does not submit a native field, so mirror the value. */}
+            <input type="hidden" name="templateId" value={templateId} />
+            <p className="text-xs text-muted-foreground">
+              لا يمكن إصدار أكثر من شهادة لنفس القالب لنفس الشخص.
+            </p>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="issue-date">تاريخ الإصدار</Label>

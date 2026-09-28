@@ -52,6 +52,61 @@ to be installed or licensed.
 
 ---
 
+## Two ways in
+
+**Participants** sign in with GitHub. The system checks whether they contributed
+and are not a maintainer, then issues their certificate of participation. They
+can download the PDF, edit the name printed on it, and edit it again later.
+
+**The single admin** keeps the password login (`ADMIN_PASSWORD`).
+
+### Campaigns
+
+An admin creates a *campaign* (`/admin/programs`): a certificate template, a
+date range, and a list of repositories. Someone is eligible when
+
+- they hold neither `admin` nor `maintain` on **any** listed repo, and
+- they authored at least one **merged pull request**, dated inside the range, in
+  at least one listed repo.
+
+They are then offered the certificate, and one person can hold **one certificate
+per template** — an admin-issued certificate blocks a later self-claim, and vice
+versa.
+
+### GitHub OAuth setup
+
+GitHub has no API for creating OAuth Apps, so this step is manual:
+
+> github.com/settings/developers → **OAuth Apps** → New OAuth App
+> - Homepage URL: `https://<your-domain>`
+> - Callback URL: `https://<your-domain>/auth/github/callback`
+
+Then set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env`.
+
+Requested scopes are `read:user user:email` — deliberately minimal. Reading a
+caller's permission level on a *public* repo comes back from a plain repo read,
+so there is no `repo` scope and no scary consent screen. The access token is
+used during the callback and never stored.
+
+### How the check is implemented
+
+Two things are easy to get wrong, so both are pinned down here:
+
+| Check | How | Why not the obvious way |
+|---|---|---|
+| Is the user a maintainer? | `GET /repos/{owner}/{repo}` → the caller's own `permissions` | `/collaborators/{user}/permission` needs push access to the repo, so it would always fail for us |
+| Did they contribute in the window? | `search/issues?q=is:pr+is:merged+author:…+repo:…+merged:FROM..TO` | `/commits?author=` only walks the default branch, so fork PRs are invisible, and squash merges attribute the commit to the merger |
+
+Both loops short-circuit, so the cost is at most two calls per repository and
+usually one. Search is capped at 30 requests/minute, so very long repo lists will
+be slow on a cold login.
+
+A failed check means *not eligible*, and the participant sees why. It is
+recomputed on every GitHub login; the verdict and its timestamp are stored on the
+user row for the admin to see.
+
+---
+
 ## Getting started
 
 ```bash
@@ -64,6 +119,7 @@ npm run dev
 
 - Public verification: <http://localhost:3000>
 - Admin: <http://localhost:3000/admin>
+- Campaigns: <http://localhost:3000/admin/programs>
 
 On first run, `better-sqlite3` may need its native binding built:
 
@@ -82,6 +138,7 @@ cd node_modules/better-sqlite3 && npx node-gyp rebuild --release
 | `INTERNAL_BASE_URL` | Optional. Origin the render worker loads the print route from. Defaults to `http://127.0.0.1:$PORT` |
 | `CERT_PREFIX` | Printed before the serial, e.g. `ITQ` → `ITQ-2026-1234` |
 | `CERT_CODE_YEAR` | First four digits of every code. Default `2026` |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | From your GitHub OAuth App. Empty means participant sign-in is hidden |
 
 Gender is per-user, not an environment setting — it lives on the user record and
 is editable from `/admin/users`.
@@ -159,7 +216,8 @@ wants to try them. Verification is not logged and not rate-limited; see
 | `npm run compare` | Screenshot the print route and report the laid-out geometry |
 | `npm run check:copy` | Assert both gender variants still fit the certificate layout |
 | `npm run check:assets` | Assert every asset box matches the Figma node it came from |
-| `npm run smoke` | End-to-end browser test (see below) |
+| `npm run check:github` | Exercise the eligibility check against the real GitHub API (`GITHUB_TOKEN=<PAT>`) |
+| `npm run check:e2e` | End-to-end browser test on a throwaway database (see below) |
 | `npm run figma:sync` | Re-extract artwork and text geometry from Figma |
 | `npm run typecheck` | `tsc --noEmit` |
 
@@ -185,18 +243,36 @@ rasterisation noise).
 ### End-to-end test
 
 ```bash
-npm run dev
-npm run smoke
+npm run build
+npm run check:e2e
 ```
+
+This is the one to reach for. It creates a throwaway database in a temp
+directory, migrates and seeds it, starts the built server against **that**
+database, runs the browser test, then deletes the directory. Your real
+`data/cert-checker.db` is never opened — verified by checksum in review.
 
 Drives a real browser through login → create user (as أنثى) → bulk add → issue
 certificate → download PDF → assert the PDF carries the feminine wording and
-`لوجهه الكريم` → assert the QR is a link annotation pointing at that certificate
-→ download ZIP → verify through the single page (deep link, manual entry, printed
-form, unknown code) → logout. 20 checks. Screenshots land in `/tmp/smoke`.
+`لوجهه الكريم` → download ZIP → create a campaign and assert its repo input is
+parsed → assert a second certificate for the same template is refused → assert
+the QR is a link annotation pointing at that certificate → verify through the
+single page (deep link, manual entry, printed form, unknown code) → logout.
+23 checks. Screenshots land in `/tmp/smoke-e2e`.
 
 The PDF wording assertion needs `pdftotext` (poppler-utils); it is skipped with a
 notice if unavailable.
+
+To point the test at a server you are already running instead:
+
+```bash
+npm run dev
+SMOKE_CONFIRM_WRITES=1 npm run smoke
+```
+
+`npm run smoke` **writes** to the target server's database and renders PDFs, so
+it refuses to start without `SMOKE_CONFIRM_WRITES=1`. That flag is the reason it
+can no longer quietly add test users to your real data.
 
 ### Re-syncing after a design change
 
@@ -286,6 +362,14 @@ spawned per certificate.
 
 **Back up `data/cert-checker.db` only.** `storage/` holds generated files that
 recreate themselves on demand, so losing it costs nothing.
+
+## Notes
+
+- `check-github.ts` needs a PAT because the permission probe must see a real
+  caller's rights. With a PAT the "no access" branches are still meaningful; it
+  just cannot prove the maintainer branch.
+- Migrations back one-off: `drizzle/` carries the whole history, and
+  `npm run db:migrate` is all a fresh clone needs.
 
 ### Scaling past SQLite
 

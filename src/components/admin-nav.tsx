@@ -1,6 +1,6 @@
 "use client";
 
-import { Award, LayoutDashboard, Users } from "lucide-react";
+import { Award, LayoutDashboard, Megaphone, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 
 const LINKS = [
   { href: "/admin", label: "نظرة عامة", icon: LayoutDashboard, exact: true },
+  { href: "/admin/programs", label: "الحملات", icon: Megaphone, exact: false },
   { href: "/admin/users", label: "المستخدمون", icon: Users, exact: false },
   { href: "/admin/certs", label: "الشهادات", icon: Award, exact: false },
 ];

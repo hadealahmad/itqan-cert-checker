@@ -1,14 +1,10 @@
 /**
- * Seeds a couple of users and certificates so the print route can be checked
- * against the Figma reference render.
+ * Seeds the template catalogue and a few sample people + certificates.
  *
  *   npm run db:seed
  */
-import { eq } from "drizzle-orm";
-
-import { createUser, findUserByNameKey, issueCertificate } from "../src/lib/certs.ts";
-import { db } from "../src/lib/db/index.ts";
-import { certificates } from "../src/lib/db/schema.ts";
+import { findUserByNameKey, getUser, issueCertificate, createUser } from "../src/lib/certs.ts";
+import { defaultTemplate, syncTemplateCatalogue } from "../src/lib/programs.ts";
 import { toISODate } from "../src/lib/dates.ts";
 import { nameKey } from "../src/lib/utils.ts";
 
@@ -18,28 +14,37 @@ const PEOPLE = [
   { name: "نورة سعد القحطاني", gender: "female", email: null },
 ] as const;
 
-// Fixed so the render is reproducible between runs.
 const ISSUE_DATE = "2026-10-10";
 
-const existing = db.select({ id: certificates.id }).from(certificates).all();
-if (existing.length > 0) {
-  console.log(`Seed skipped — ${existing.length} certificate(s) already present.`);
-  process.exit(0);
-}
+syncTemplateCatalogue();
+const template = defaultTemplate();
+console.log(`template: ${template.slug} (${template.nameAr})`);
 
 for (const person of PEOPLE) {
   const key = nameKey(person.name);
   let user = findUserByNameKey(key);
   if (!user) {
-    user = createUser({ name: person.name, gender: person.gender, email: person.email ?? null });
+    user = createUser({ name: person.name, gender: person.gender, email: person.email });
     console.log(`+ user  ${user.name}`);
   }
-  const cert = issueCertificate({ userId: user.id, issuedOn: ISSUE_DATE });
-  console.log(`+ cert  ${cert.code}  ->  ${user.name}`);
+  const existing = getUser(user.id);
+  if (!existing) continue;
+  try {
+    const cert = issueCertificate({
+      userId: user.id,
+      templateId: template.id,
+      source: "admin",
+      issuedOn: ISSUE_DATE,
+    });
+    console.log(`+ cert  ${cert.code}  ->  ${user.name}`);
+  } catch (error) {
+    if ((error as Error).name === "DuplicateCertificateError") {
+      console.log(`= cert  ${user.name} already holds one for this template`);
+      continue;
+    }
+    throw error;
+  }
 }
 
-const [first] = db.select().from(certificates).where(eq(certificates.serial, "0001")).all();
-if (first) {
-  console.log(`\nPrint URL: /p/${first.printToken}  (code ${first.code})`);
-}
-console.log(`Issue date used: ${ISSUE_DATE} (${toISODate(ISSUE_DATE)})`);
+console.log(`\nIssue date used: ${ISSUE_DATE} (${toISODate(ISSUE_DATE)})`);
+console.log("No programs seeded — create one at /admin/programs to enable GitHub sign-in.");

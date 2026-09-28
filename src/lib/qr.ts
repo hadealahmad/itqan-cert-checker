@@ -1,6 +1,6 @@
 import QRCode from "qrcode";
 
-import { QR } from "./cert-template";
+import { QR as DEFAULT_QR } from "./cert-template";
 
 /** Public origin used to build scannable links, e.g. https://itqan.dev */
 export function baseUrl(): string {
@@ -34,14 +34,19 @@ export function verifyUrl(code: string): string {
   return verifyPath(code);
 }
 
-/** Render the QR as an inline SVG string, ready to drop into the certificate. */
-export async function qrSvg(code: string): Promise<string> {
+/**
+ * Render the QR as an inline SVG string, ready to drop into the certificate.
+ * The sizing/correction config comes from the template being rendered.
+ */
+export async function qrSvg(
+  code: string,
+  config: { size: number; margin: number; errorCorrectionLevel: "L" | "M" | "Q" | "H" } = DEFAULT_QR,
+): Promise<string> {
   return QRCode.toString(verifyPath(code), {
     type: "svg",
-    errorCorrectionLevel: QR.errorCorrectionLevel,
-    margin: QR.margin,
-    // Nearest-neighbour keeps module edges crisp when the SVG is scaled.
-    width: QR.size,
+    errorCorrectionLevel: config.errorCorrectionLevel,
+    margin: config.margin,
+    width: config.size,
     color: { dark: "#014B3FFF", light: "#00000000" },
   });
 }

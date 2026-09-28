@@ -56,6 +56,9 @@ export interface CertListRow {
   recipientName: string;
   userName: string | null;
   userEmail: string | null;
+  templateName: string;
+  source: "admin" | "self";
+  githubLogin: string | null;
   printToken?: string;
 }
 
@@ -64,10 +67,12 @@ type Tab = "all" | "issued" | "revoked";
 export function CertsManager({
   rows,
   users,
+  templates,
   printTokens,
 }: {
   rows: CertListRow[];
   users: IssuableUser[];
+  templates: Array<{ id: number; nameAr: string }>;
   printTokens: Record<number, string>;
 }) {
   const [tab, setTab] = useState<Tab>("all");
@@ -99,7 +104,11 @@ export function CertsManager({
         cell: ({ row }) => (
           <div className="min-w-0">
             <p className="truncate font-medium">{row.original.recipientName}</p>
-            {row.original.userEmail ? (
+            {row.original.githubLogin ? (
+              <p dir="ltr" className="truncate text-xs text-muted-foreground">
+                @{row.original.githubLogin}
+              </p>
+            ) : row.original.userEmail ? (
               <p dir="ltr" className="truncate text-xs text-muted-foreground">
                 {row.original.userEmail}
               </p>
@@ -120,6 +129,18 @@ export function CertsManager({
         accessorKey: "issuedOn",
         header: "تاريخ الإصدار",
         cell: ({ row }) => <span className="text-sm">{formatGregorianArabic(row.original.issuedOn)}</span>,
+      },
+      {
+        accessorKey: "templateName",
+        header: "القالب",
+        cell: ({ row }) => (
+          <div className="min-w-0 space-y-0.5">
+            <p className="truncate text-sm">{row.original.templateName}</p>
+            <Badge variant="outline" className="text-xs">
+              {row.original.source === "self" ? "استلام ذاتي" : "يدوي"}
+            </Badge>
+          </div>
+        ),
       },
       {
         accessorKey: "status",
@@ -290,7 +311,7 @@ export function CertsManager({
         </CardContent>
       </Card>
 
-      <IssueDialog open={issuing} onOpenChange={setIssuing} users={users} />
+      <IssueDialog open={issuing} onOpenChange={setIssuing} users={users} templates={templates} />
 
       {revoking ? (
         <RevokeDialog

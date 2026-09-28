@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 
 import { NextResponse } from "next/server";
 
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin } from "@/lib/session";
 import { getCertificateById } from "@/lib/certs";
 import { contentDisposition } from "@/lib/content-disposition";
 import { renderCertificate } from "@/lib/render";

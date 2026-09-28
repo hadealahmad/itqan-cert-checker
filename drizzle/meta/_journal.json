@@ -22,6 +22,13 @@
       "when": 1790596634301,
       "tag": "0002_brown_tempest",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790601528362,
+      "tag": "0003_misty_thunderbolt_ross",
+      "breakpoints": true
     }
   ]
 }

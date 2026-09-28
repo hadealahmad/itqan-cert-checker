@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { AdminNav } from "@/components/admin-nav";
-import { isAuthenticated } from "@/lib/auth";
+import { isAuthenticated } from "@/lib/session";
 import { logoutAction } from "@/lib/actions/auth";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {

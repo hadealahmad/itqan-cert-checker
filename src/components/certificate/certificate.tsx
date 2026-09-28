@@ -1,17 +1,6 @@
 import type { CSSProperties } from "react";
 
-import {
-  ASSETS,
-  BACKGROUND_GRADIENT,
-  DYNAMIC_TEXT,
-  FONT_FAMILY,
-  FRAME,
-  HIJRI_ERA,
-  QR,
-  STATIC_TEXT,
-  type TextSlot,
-  type VectorAsset,
-} from "@/lib/cert-template";
+import type { TemplateDef, TextSlot, VectorAsset } from "@/lib/cert-template";
 
 export interface CertificateValues {
   recipientName: string;
@@ -37,12 +26,12 @@ export interface CertificateValues {
 }
 
 /** Position a run either inside its Figma box or centred on the frame. */
-function slotStyle(slot: TextSlot): CSSProperties {
+function slotStyle(slot: TextSlot, fontFamily: string): CSSProperties {
   const base: CSSProperties = {
     position: "absolute",
     top: slot.y,
     color: slot.color,
-    fontFamily: FONT_FAMILY,
+    fontFamily,
     fontSize: `${slot.fontSize}px`,
     fontWeight: slot.weight,
     lineHeight: `${slot.lineHeight}px`,
@@ -93,30 +82,40 @@ function Asset({ asset }: { asset: VectorAsset }) {
 
 function Run({
   slot,
+  fontFamily,
   children,
 }: {
   slot: TextSlot & { value?: string };
+  fontFamily: string;
   children?: React.ReactNode;
 }) {
-  return <div style={slotStyle(slot)}>{children ?? slot.value}</div>;
+  return <div style={slotStyle(slot, fontFamily)}>{children ?? slot.value}</div>;
 }
 
 /**
- * The certificate, typeset at the Figma frame's exact pixel size.
+ * The certificate, typeset at the template's exact pixel size.
  *
- * Rendered by the browser at 1920x1358 and captured by Playwright as PDF/PNG.
- * Nothing here is responsive — this is a fixed-geometry print document.
+ * Rendered by the browser at the frame dimensions and captured by Playwright as
+ * PDF/PNG. Nothing here is responsive — this is a fixed-geometry print document.
  */
-export function Certificate({ values }: { values: CertificateValues }) {
+export function Certificate({
+  template,
+  values,
+}: {
+  template: TemplateDef;
+  values: CertificateValues;
+}) {
+  const { frame, assets, staticText, dynamicText, fontFamily, background, qr } = template;
+
   return (
     <div
       dir="rtl"
       lang="ar"
       style={{
         position: "relative",
-        width: FRAME.width,
-        height: FRAME.height,
-        background: BACKGROUND_GRADIENT,
+        width: frame.width,
+        height: frame.height,
+        background,
         overflow: "hidden",
         // Never let the renderer sub-pixel-shift the artwork.
         WebkitFontSmoothing: "antialiased",
@@ -126,25 +125,38 @@ export function Certificate({ values }: { values: CertificateValues }) {
         printColorAdjust: "exact",
         WebkitPrintColorAdjust: "exact",
       }}
+      data-template={template.slug}
     >
-      {Object.values(ASSETS).map((asset) => (
+      {Object.values(assets).map((asset) => (
         <Asset key={asset.src} asset={asset} />
       ))}
 
-      <Run slot={STATIC_TEXT.witness} />
-      <Run slot={DYNAMIC_TEXT.recipientName}>{values.recipientName}</Run>
-      <Run slot={DYNAMIC_TEXT.contributed}>{values.contributed}</Run>
-      <Run slot={DYNAMIC_TEXT.description}>{values.description}</Run>
+      <Run slot={staticText.witness} fontFamily={fontFamily} />
+      <Run slot={dynamicText.recipientName} fontFamily={fontFamily}>
+        {values.recipientName}
+      </Run>
+      <Run slot={dynamicText.contributed} fontFamily={fontFamily}>
+        {values.contributed}
+      </Run>
+      <Run slot={dynamicText.description} fontFamily={fontFamily}>
+        {values.description}
+      </Run>
 
-      <Run slot={STATIC_TEXT.signerName} />
-      <Run slot={STATIC_TEXT.signerRole} />
+      <Run slot={staticText.signerName} fontFamily={fontFamily} />
+      <Run slot={staticText.signerRole} fontFamily={fontFamily} />
 
-      <Run slot={STATIC_TEXT.labelCert} />
-      <Run slot={DYNAMIC_TEXT.certNumber}>{values.certNumber}</Run>
+      <Run slot={staticText.labelCert} fontFamily={fontFamily} />
+      <Run slot={dynamicText.certNumber} fontFamily={fontFamily}>
+        {values.certNumber}
+      </Run>
 
-      <Run slot={STATIC_TEXT.labelDate} />
-      <Run slot={DYNAMIC_TEXT.gregorianDate}>{values.gregorianDate}</Run>
-      <Run slot={DYNAMIC_TEXT.hijriDate}>{values.hijriDate}</Run>
+      <Run slot={staticText.labelDate} fontFamily={fontFamily} />
+      <Run slot={dynamicText.gregorianDate} fontFamily={fontFamily}>
+        {values.gregorianDate}
+      </Run>
+      <Run slot={dynamicText.hijriDate} fontFamily={fontFamily}>
+        {values.hijriDate}
+      </Run>
 
       {values.showQr !== false && (
         <a
@@ -152,10 +164,10 @@ export function Certificate({ values }: { values: CertificateValues }) {
           // Anchors get an underline and link colour by default; this is artwork.
           style={{
             position: "absolute",
-            left: QR.x,
-            top: QR.y,
-            width: QR.size,
-            height: QR.size,
+            left: qr.x,
+            top: qr.y,
+            width: qr.size,
+            height: qr.size,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -168,9 +180,6 @@ export function Certificate({ values }: { values: CertificateValues }) {
           dangerouslySetInnerHTML={{ __html: values.qrSvg }}
         />
       )}
-
-      {/* Keeps the era marker discoverable for copy/paste without affecting layout. */}
-      <span style={{ display: "none" }}>{HIJRI_ERA}</span>
     </div>
   );
 }
