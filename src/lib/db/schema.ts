@@ -62,6 +62,33 @@ export const programRepos = sqliteTable(
 );
 
 /**
+ * People the admin declares as supervisors of a campaign's repositories.
+ *
+ * This exists because GitHub will not say who can administer a repository
+ * without push access to it, and no public source reliably answers it: the
+ * collaborator endpoint returns 403, org membership is private on most
+ * organisations, CODEOWNERS is usually absent, and the `merged-by:` search
+ * qualifier does not work at all.
+ *
+ * So the organisation states it. That needs no token, no scope and no push, and
+ * it is authoritative in a way inference never is — these are the people who
+ * actually supervise the work.
+ */
+export const programMaintainers = sqliteTable(
+  "program_maintainers",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    programId: integer("program_id")
+      .notNull()
+      .references(() => programs.id, { onDelete: "cascade" }),
+    /** Lowercased GitHub login. */
+    login: text("login").notNull(),
+    createdAt: text("created_at").notNull().default(now),
+  },
+  (t) => [uniqueIndex("program_maintainers_unique_idx").on(t.programId, t.login)],
+);
+
+/**
  * A person who can receive certificates. Kept separate from certificates so the
  * same person can hold several — but never two of the same template.
  */

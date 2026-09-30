@@ -7,8 +7,21 @@ import { z } from "zod";
 
 import { ADMIN_COOKIE, verifyAdminToken } from "@/lib/auth";
 import { idle, type ActionState } from "@/lib/action-state";
-import { collaboratorRole, scanAccess, scanReady, scanRoster, scanToken } from "@/lib/github";
-import { getProgram, listTemplates, parseRepoLines } from "@/lib/programs";
+import {
+  classifySupervisor,
+  codeownersMaintainers,
+  scanReady,
+  scanRoster,
+  scanToken,
+} from "@/lib/github";
+import {
+  getProgram,
+  listMaintainers,
+  listTemplates,
+  parseMaintainerLines,
+  parseRepoLines,
+  setMaintainers,
+} from "@/lib/programs";
 import {
   clearRoster,
   deleteCandidate,
@@ -29,6 +42,7 @@ const programSchema = z.object({
   contributionFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ البداية غير صالح"),
   contributionTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ النهاية غير صالح"),
   reposText: z.string().trim().min(1, "أضف مستودعًا واحدًا على الأقل"),
+  maintainersText: z.string().optional(),
   isActive: z.union([z.literal("on"), z.literal("")]).optional(),
 });
 
@@ -48,6 +62,7 @@ export async function saveProgramAction(
   }
 
   const { id, nameAr, templateId, contributionFrom, contributionTo, reposText, isActive } = parsed.data;
+  const maintainers = parseMaintainerLines(parsed.data.maintainersText ?? "");
 
   if (contributionFrom > contributionTo) {
     return {
@@ -81,15 +96,21 @@ export async function saveProgramAction(
 
   if (id) {
     updateProgram(id, payload);
+    setMaintainers(id, maintainers);
   } else {
-    createProgram(payload);
+    const created = createProgram(payload);
+    setMaintainers(created.id, maintainers);
   }
 
   revalidatePath("/admin/programs");
   revalidatePath("/admin");
   return {
     ok: true,
-    message: id ? `تم تحديث حملة ${nameAr}` : `تم إنشاء حملة ${nameAr} بـ ${repos.length} مستودع`,
+    message:
+      id
+        ? `تم تحديث حملة ${nameAr}`
+        : `تم إنشاء حملة ${nameAr} بـ ${repos.length} مستودع` +
+          (maintainers.length > 0 ? ` و${maintainers.length} مشرفًا` : ""),
   };
 }
 
@@ -150,16 +171,7 @@ export async function refreshRosterAction(
   // produce a wall of "needs review" rows is explained before it runs.
   const token = scanToken();
   const notes: string[] = [];
-  const blind: typeof program.repos = [];
-  for (const repo of program.repos) {
-    if ((await scanAccess(repo, token)) !== "push") blind.push(repo);
-  }
-  if (blind.length > 0) {
-    notes.push(
-      `لا يملك التوكن صلاحية إشراف على: ${blind.map((r) => `${r.owner}/${r.repo}`).join("، ")} — ` +
-        `سيُسجَّل أصحاب هذه المساهمات كـ«يحتاج مراجعة» بدل اعتمادهم تلقائيًا.`,
-    );
-  }
+  const maintainers = listMaintainers(program.id);
 
   let scan: Awaited<ReturnType<typeof scanRoster>>;
   try {
@@ -170,6 +182,7 @@ export async function refreshRosterAction(
         contributionTo: program.contributionTo,
       },
       token,
+      { declaredMaintainers: maintainers },
     );
   } catch (error) {
     return {
@@ -217,26 +230,26 @@ export async function recheckCandidateAction(
     return { ok: false, message: "استلم شهادته بالفعل" };
   }
 
-  const preflight = await scanReady();
-  if (!preflight.ok) return { ok: false, message: preflight.error ?? "تعذّر الفحص" };
-
-  let status: "eligible" | "maintainer" | "unverified" = "unverified";
-  let reason = "لم تتغيّر صلاحية الإشراف";
-  let blocker = "";
+  // Uses the same layered signals as the scan, so a row settled here and the
+  // same row settled by a scan can never disagree.
+  const declared = new Set(listMaintainers(program.id));
+  const codeowners = new Map<string, string>();
   for (const repo of program.repos) {
-    const role = await collaboratorRole(repo, candidate.githubLogin, scanToken());
-    if (role === "admin" || role === "maintain") {
-      status = "maintainer";
-      blocker = `${repo.owner}/${repo.repo}`;
-      break;
-    }
-    if (role === "member") {
-      status = "eligible";
-      reason = "ليست له صلاحية إشراف على مستودعات الحملة";
+    const owners = await codeownersMaintainers(repo);
+    for (const login of owners.logins) {
+      if (!codeowners.has(login)) codeowners.set(login, `مذكور في ${owners.path}`);
     }
   }
-  if (status === "maintainer") reason = `مشرف على ${blocker}`;
 
+  const verdict = await classifySupervisor(
+    candidate.githubLogin,
+    program.repos,
+    scanToken(),
+    declared,
+    codeowners,
+  );
+
+  const { status, reason } = verdict;
   setCandidateStatus(candidate.id, status, reason, { manual: false });
   revalidatePath("/admin/programs");
   return { ok: true, message: `${candidate.githubLogin}: ${reason}` };

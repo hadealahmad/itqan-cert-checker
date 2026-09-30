@@ -31,3 +31,5 @@ storage/
 Thumbs.db
 *.log
 npm-debug.log*
+.next-dev
+.next-e2e

@@ -4,7 +4,12 @@ import { useActionState, useEffect, useState } from "react";
 
 import { deleteProgramAction, saveProgramAction } from "@/lib/actions/programs";
 import { idle } from "@/lib/action-state";
-import { parseRepoLines, type ProgramWithRepos } from "@/lib/repo-ref";
+import {
+  parseMaintainerLines,
+  parseRepoLines,
+  type ProgramWithRepos,
+} from "@/lib/repo-ref";
+
 import { toISODate } from "@/lib/dates";
 
 import { RosterPanel } from "@/components/programs/roster-panel";
@@ -43,6 +48,8 @@ export interface TemplateOption {
 export interface RosterData {
   candidates: CandidateRow[];
   summary: RosterSummary;
+  /** Lowercased logins the admin declared as supervisors. */
+  maintainers: string[];
 }
 
 export function ProgramsManager({
@@ -159,6 +166,7 @@ export function ProgramsManager({
           }}
           templates={templates}
           program={editing}
+          maintainers={rosters[editing.id]?.maintainers ?? []}
         />
       ) : null}
       {deleting ? (
@@ -173,17 +181,21 @@ function ProgramDialog({
   onOpenChange,
   templates,
   program,
+  maintainers = [],
 }: {
   open: boolean;
   onOpenChange: (next: boolean) => void;
   templates: TemplateOption[];
   program?: ProgramWithRepos;
+  maintainers?: string[];
 }) {
   const [state, formAction, pending] = useActionState(saveProgramAction, idle);
   const [reposText, setReposText] = useState(() =>
     program ? program.repos.map((repo) => `${repo.owner}/${repo.repo}`).join("\n") : "",
   );
   const [templateId, setTemplateId] = useState(String(program?.templateId ?? templates[0]?.id ?? ""));
+  const [maintainersText, setMaintainersText] = useState(() => maintainers.join("\n"));
+  const parsedMaintainers = parseMaintainerLines(maintainersText);
 
   // Close on success, so the saved campaign is visible in the list behind. Left
   // open, the overlay blocks the whole page and the result is only a line of
@@ -295,6 +307,25 @@ function ProgramDialog({
             {state.errors?.reposText ? (
               <p className="text-sm text-destructive">{state.errors.reposText}</p>
             ) : null}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="program-maintainers">مشرفو الحملة</Label>
+            <Textarea
+              id="program-maintainers"
+              name="maintainersText"
+              rows={3}
+              value={maintainersText}
+              onChange={(event) => setMaintainersText(event.target.value)}
+              placeholder={"@username-one\nusername-two"}
+              aria-describedby="program-maintainers-help"
+              className="font-mono text-sm"
+            />
+            <p id="program-maintainers-help" className="text-xs text-muted-foreground">
+              {parsedMaintainers.length > 0
+                ? `سيُستبعد ${parsedMaintainers.length} مشرفًا تلقائيًا، بصرف النظر عن أي توكن`
+                : "اختياري.GitHub لا يعلن من يشرف على مستودع عام إلا بصلاحية إشراف عليه، فاكتب أسماء مشرفي الحملة هنا ليُستبعدوا تلقائيًا."}
+            </p>
           </div>
 
           <label className="flex items-center gap-2 text-sm">

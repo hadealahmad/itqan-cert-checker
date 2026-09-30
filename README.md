@@ -103,10 +103,12 @@ claimed certificate.
 
 Two deliberate choices:
 
-- **`يحتاج مراجعة` is a real state, not a failure.** Reading whether someone
-  supervises a repo needs push access to it. Without that, GitHub answers 403 and
-  we do not know — and recording "unknown" as "eligible" would hand certificates
-  to maintainers. Those rows wait for a decision instead.
+- **`يحتاج مراجعة` is a real state, not a failure.** GitHub will not say who
+  supervises a repository without push access, and recording "unknown" as
+  "eligible" would hand certificates to maintainers. The campaign declares its own
+  maintainers, which needs no token at all; anything still undecided waits for a
+  decision. See
+  [Identifying maintainers](#identifying-maintainers-without-the-owners-token).
 - **A capped scan says so.** Search returns 100 results a call and is limited to
   30 calls/minute, so a scan reads at most `ROSTER_MAX_PRS_PER_REPO` merged PRs
   per repo. When that cap bites, the admin is told the list is incomplete rather
@@ -128,25 +130,10 @@ participant, and that token is what stops someone claiming another person's
 certificate. The scan token cannot do that job — it is your credential, so
 anyone "signing in" with it would be signing in as you.
 
-#### Why the scan needs its own token
-
-Reading whether *someone else* supervises a repository requires push access to
-it. That is why a scan cannot reuse a participant's OAuth token: such a token
-can only ever report the caller's own permissions.
-
-Because every campaign repository is public, the two halves degrade differently,
-and it is worth being precise about which half is which:
-
-- **Counting contributions works with any token.** Public repositories are
-  readable without any scope, so the search that finds merged PRs is never the
-  problem.
-- **Settling who supervises a repository needs push.** Without it GitHub answers
-  403 and we do not know, so those people are recorded as `يحتاج مراجعة` rather
-  than approved.
-
-A token belonging to someone who administers the listed repositories therefore
-works fully, and `تحديث قائمة المؤهلين` names the repositories it cannot verify
-*before* scanning, so a wall of review rows is never a surprise.
+Why a scan needs push access at all is covered under
+[How the check is implemented](#how-the-check-is-implemented); which token to
+actually use is in [GitHub tokens and permissions](#github-tokens-and-permissions)
+under Environment.
 
 ### How the check is implemented
 
@@ -189,17 +176,203 @@ cd node_modules/better-sqlite3 && npx node-gyp rebuild --release
 
 ### Environment
 
-| Variable | Purpose |
+Everything the tool reads, in one place. Copy `.env.example` to `.env` and fill
+in what applies to you; nothing here is read from anywhere else.
+
+```bash
+cp .env.example .env
+openssl rand -base64 32          # for SESSION_SECRET
+```
+
+#### Minimum to run
+
+Just these three. The app starts, the admin area works, and certificates issue
+and verify by hand.
+
+```dotenv
+ADMIN_PASSWORD=a-long-password-you-choose
+SESSION_SECRET=<output of the openssl command above>
+NEXT_PUBLIC_BASE_URL=https://certificates.example.com
+```
+
+`SESSION_SECRET` and `ADMIN_PASSWORD` are not optional in any real sense. The
+code refuses to run without them, and both fail loudly rather than falling back
+to a default — a default admin password would be worse than a crash.
+
+#### Full reference
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `ADMIN_PASSWORD` | **yes** | — | Password for `/admin`. Compared in constant time. Not hashed: it never leaves your process, but it does live in the environment |
+| `SESSION_SECRET` | **yes** | — | Signs the admin and participant session cookies (HS256). Must be ≥ 16 characters. Rotating it logs everyone out |
+| `NEXT_PUBLIC_BASE_URL` | **yes in prod** | `http://localhost:3000` | Public origin. Encoded into every QR code, so getting it wrong means printed certificates point at the wrong address |
+| `DATABASE_URL` | no | `file:./data/cert-checker.db` | SQLite file. Also read by `drizzle-kit`, so migrations follow it |
+| `CERT_PREFIX` | no | `ITQ` | Printed before the serial: `ITQ` → `ITQ-2026-1234` |
+| `CERT_CODE_YEAR` | no | current UTC year | The `2026` in `ITQ-2026-1234`. **Changing it after issuing does not renumber existing certificates** |
+| `INTERNAL_BASE_URL` | no | `http://127.0.0.1:$PORT` | Origin the PDF render worker loads the print route from. Only needed when the worker is on another host |
+| `PORT` | no | `3000` | Standard Next.js port |
+| `SQLITE_VERBOSE` | no | unset | Set to `1` to log every SQL statement. A debugging aid only |
+| `GITHUB_CLIENT_ID` | for sign-in | — | OAuth App client id. Empty hides participant sign-in |
+| `GITHUB_CLIENT_SECRET` | for sign-in | — | OAuth App client secret |
+| `GITHUB_SCAN_TOKEN` | for scans | — | A GitHub *token* for the roster scan. Empty disables the scan button and says why |
+
+#### GitHub tokens and permissions
+
+These get confused constantly, and they are not interchangeable.
+
+**`GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` — participant sign-in.**
+
+These are *not* tokens. They identify your OAuth App, and that app is the only
+thing that can issue a token to a participant. This matters for correctness, not
+formality: the token issued during sign-in is what stops someone claiming another
+person's certificate. It is issued to them, in their browser, and grants only
+`read:user user:email`.
+
+GitHub has no API for creating OAuth Apps, so this is manual:
+
+> github.com/settings/developers → **OAuth Apps** → New OAuth App
+> - Homepage URL: `https://<your-domain>`
+> - Callback URL: `https://<your-domain>/auth/github/callback`
+
+The callback URL must match `NEXT_PUBLIC_BASE_URL` exactly, including scheme and
+any path prefix. Leave both empty and participant sign-in simply does not appear;
+the admin area keeps working.
+
+**`GITHUB_SCAN_TOKEN` — the roster scan.**
+
+This one *is* a token, e.g. `gh auth token`, or a fine-grained PAT. It is the
+app's own credential, used to read contributions and to settle who supervises
+each listed repository. It cannot do the job of the OAuth App: anyone signing in
+with it would be signing in as you.
+
+It needs no special permission. A plain read-only token counts contributions
+correctly, and maintainers come from the campaign's own declared list plus
+`CODEOWNERS` — neither of which needs a token. Push access only upgrades the
+still-uncertain rows to a confirmed verdict, so you never need to ask a repository
+owner for a privileged credential.
+
+Because every campaign repository is public, the two halves behave differently:
+
+| With this token | Counting merged PRs | Settling who supervises |
+|---|---|---|
+| No token | works — public repos need no scope | declared list and `CODEOWNERS` only |
+| Read only | works | declared list and `CODEOWNERS` only |
+| Push on the repo | works | plus a direct read, so uncertain rows resolve too |
+
+The declared list is the part that matters: it is what removes the dependency on
+anyone else's credentials. Repositories outside your control leave a manual
+remainder, settled one row at a time.
+
+#### Identifying maintainers, without the owners' token
+
+Worth reading twice, because the obvious approach does not work and knowing why
+is cheaper than rediscovering it.
+
+Someone is disqualified for holding `admin` or `maintain` on a listed repository.
+GitHub will not tell you that from outside, and every shortcut was checked against
+the live API:
+
+| Approach | Result |
 |---|---|
-| `DATABASE_URL` | SQLite file. Default `file:./data/cert-checker.db` |
-| `ADMIN_PASSWORD` | Password for `/admin` — **change this** |
-| `SESSION_SECRET` | Signs the session cookie. `openssl rand -base64 32` |
-| `NEXT_PUBLIC_BASE_URL` | Public origin, encoded into the QR code. No trailing slash |
-| `INTERNAL_BASE_URL` | Optional. Origin the render worker loads the print route from. Defaults to `http://127.0.0.1:$PORT` |
-| `CERT_PREFIX` | Printed before the serial, e.g. `ITQ` → `ITQ-2026-1234` |
-| `CERT_CODE_YEAR` | First four digits of every code. Default `2026` |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | From your GitHub OAuth App. Empty means participant sign-in is hidden |
-| `GITHUB_SCAN_TOKEN` | A GitHub *token* (e.g. `gh auth token`) for roster scans. Empty hides the scan and says why |
+| `GET /repos/{o}/{r}/collaborators/{user}/permission` | 403 — "must have push access to view collaborator permission" |
+| `GET /orgs/{org}/members?role=admin` | Empty on most organisations; membership is private unless members opt in |
+| `GET /orgs/{org}/teams/{slug}/members` | 403/404 — requires membership of that organisation |
+| `merged-by:` in search | Not implemented. Returns 0 silently, even for someone who has merged hundreds of PRs |
+| `CODEOWNERS` | Usually absent, and when present usually names *teams*, which then cannot be resolved either |
+
+So supervisors cannot be discovered automatically. What works is **declaring**
+them: the organisation knows its own maintainers, and that needs no token, no
+scope and no push access. It is also more accurate than inference, because it is
+ground truth rather than a guess.
+
+Each campaign therefore carries a **مشرفو الحملة** field — a pasted list of
+GitHub usernames, matched case-insensitively, tolerating a leading `@` or a full
+profile URL. Those people are excluded on every scan, on any token, including
+none at all.
+
+The roster consults every available signal, cheapest first:
+
+1. **Declared** in the campaign — authoritative, needs nothing.
+2. **`CODEOWNERS`** in the repository, when it names individuals rather than
+   teams. Fetched from `raw.githubusercontent.com`, so it costs no scope.
+3. **The token**, when it has push — a direct read, and still the strongest live
+   signal where it is available.
+4. Otherwise `يحتاج مراجعة` — never `مؤهل` on a guess.
+
+`إعادة الفحص` on a single row uses the same classifier, so a row settled by hand
+and the same row settled by a scan can never disagree.
+
+In practice, a campaign spanning both your organisation's repositories and other
+people's will always have a manual remainder: repositories outside your control
+can never be auto-resolved, whatever token you hold. Those are settled one at a
+time with `قرار يدوي`.
+
+#### Which token should I use?
+
+- **Any read access is enough.** `gh auth token` works, and so would a
+  fine-grained PAT with read-only repository access. Counting contributions needs
+  nothing special on a public repository.
+- **You never need an owner's token.** Maintainers come from the campaign's
+  declared list and `CODEOWNERS`, neither of which uses a credential at all.
+- **Push access is a bonus, not a requirement.** It resolves the rows that
+  neither of those can — repositories belonging to other people.
+- **Long-term, prefer a GitHub App** over a PAT. Fine-grained tokens expire, and
+  a scan that silently starts failing is worse than one that says so. Nothing
+  about the code assumes a PAT specifically — any token that works is accepted.
+
+Verify a token before relying on it:
+
+```bash
+GITHUB_SCAN_TOKEN=$(gh auth token) npm run check:roster
+```
+
+That runs a real scan against a public repository and reports what the token can
+and cannot settle.
+
+#### Cookies and TLS
+
+Nothing to configure, but worth knowing what you are deploying:
+
+| | Lifetime | Notes |
+|---|---|---|
+| Admin session | 12 hours | Re-enter the password after a day |
+| Participant session | 30 days | Long, so people are not signing in repeatedly mid-campaign |
+
+Both are `httpOnly` and `sameSite=lax`, and marked `secure` automatically when
+`NODE_ENV=production`. Over plain HTTP in production a browser will drop them,
+so terminate TLS in front of the app — this follows from `NODE_ENV`, not from a
+variable. Rotating `SESSION_SECRET` invalidates every session at once, which is
+the intended way to lock everyone out.
+
+#### Only needed to re-sync the design from Figma
+
+Not required to run the app. `npm run figma:sync` pulls the certificate artwork
+and geometry back out of the Figma file, and the geometry fixture is already
+committed, so this is only for when the design itself changes.
+
+```dotenv
+FIGMA_TOKEN=figd_…          # Figma → Settings → Security → Personal access tokens
+FIGMA_FILE_KEY=…            # defaults to this project's file
+FIGMA_FRAME_ID=…            # defaults to 7:284 (Frame 3)
+```
+
+#### Only needed by the test scripts
+
+Not used by the app. Each check documents its own variable in its header.
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `GITHUB_TOKEN` | `check:github` | Any token; the API calls need one |
+| `GITHUB_SCAN_TOKEN` | `check:roster` | The credential under test |
+| `ADMIN_PASSWORD` | `check:e2e` | Set by the harness itself |
+| `SMOKE_CONFIRM_WRITES` | `smoke` | Must be `1`; `smoke` writes to the target server's database |
+| `E2E_SKIP_BUILD` | `check:e2e` | Reuse the existing build instead of a clean one |
+
+#### A note on `ORG_NAME`
+
+`.env.example` lists `ORG_NAME`, but nothing reads it — the organisation name is
+part of the certificate template in `src/lib/cert-template.ts`. It is harmless
+but inert; change the template if you need different wording.
 
 Gender is per-user, not an environment setting — it lives on the user record and
 is editable from `/admin/users`.

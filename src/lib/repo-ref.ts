@@ -55,6 +55,31 @@ export function parseRepoLines(input: string): RepoRef[] {
   return out;
 }
 
+/**
+ * Parse a pasted maintainer list: one GitHub username per line or space,
+ * tolerating a leading @, a full profile URL, and duplicates.
+ *
+ * Pure, so the campaign form can preview the list as the admin types.
+ */
+export function parseMaintainerLines(input: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of input.split(/[\s,]+/)) {
+    const login = raw
+      .replace(/^https?:\/\/github\.com\//i, "")
+      .replace(/^@/, "")
+      .replace(/\/$/, "")
+      .toLowerCase();
+    // Logins cannot contain a slash; anything else is not a username.
+    if (!login || login.includes("/")) continue;
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/.test(login)) continue;
+    if (seen.has(login)) continue;
+    seen.add(login);
+    out.push(login);
+  }
+  return out;
+}
+
 export function formatRepo(repo: RepoRef): string {
   return `${repo.owner}/${repo.repo}`;
 }

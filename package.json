@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -21,7 +20,9 @@
     "check:assets": "tsx scripts/check-assets.ts",
     "check:github": "tsx scripts/check-github.ts",
     "check:e2e": "tsx scripts/check-e2e.ts",
-    "check:roster": "tsx scripts/check-roster.ts"
+    "check:roster": "tsx scripts/check-roster.ts",
+    "check:env-docs": "tsx scripts/check-env-docs.ts",
+    "dev": "NEXT_DIST_DIR=.next-dev next dev"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -1,12 +1,13 @@
 import { asc, desc, eq, inArray } from "drizzle-orm";
 
 import { db } from "./db";
-import { programRepos, programs, templates, type Template } from "./db/schema";
+import { programMaintainers, programRepos, programs, templates, type Template } from "./db/schema";
 import { REGISTERED_SLUGS } from "./templates";
 import type { ProgramWithRepos, RepoRef } from "./repo-ref";
+import { parseMaintainerLines } from "./repo-ref";
 
 export type { ProgramWithRepos, RepoRef };
-export { parseRepoLines } from "./repo-ref";
+export { parseMaintainerLines, parseRepoLines } from "./repo-ref";
 
 /* ------------------------------------------------------------------ *
  * Templates
@@ -101,6 +102,17 @@ export function listPrograms(opts: { onlyActive?: boolean } = {}): ProgramWithRe
     .map((row) => ({ ...row, repos: withRepos.get(row.id) ?? [], certCount: 0 }));
 }
 
+/** Lowercased logins the admin declared as supervisors. */
+export function listMaintainers(programId: number): string[] {
+  return db
+    .select({ login: programMaintainers.login })
+    .from(programMaintainers)
+    .where(eq(programMaintainers.programId, programId))
+    .orderBy(asc(programMaintainers.login))
+    .all()
+    .map((row) => row.login);
+}
+
 export function getProgram(id: number): ProgramWithRepos | undefined {
   return listPrograms().find((row) => row.id === id);
 }
@@ -170,6 +182,18 @@ export function updateProgram(
         .run();
     }
     return getProgram(id);
+  });
+}
+
+/** Replace the declared maintainer set, same as the repo set. */
+export function setMaintainers(programId: number, logins: string[]): void {
+  db.transaction((tx) => {
+    tx.delete(programMaintainers).where(eq(programMaintainers.programId, programId)).run();
+    if (logins.length > 0) {
+      tx.insert(programMaintainers)
+        .values(logins.map((login) => ({ programId, login: login.toLowerCase() })))
+        .run();
+    }
   });
 }
 

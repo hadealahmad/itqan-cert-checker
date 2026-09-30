@@ -9,6 +9,9 @@
  */
 import {
   checkEligibility,
+  classifySupervisor,
+  codeownersMaintainers,
+  parseCodeowners,
   collaboratorRole,
   isMaintainer,
   mergedPullRequestAuthors,
@@ -228,6 +231,64 @@ async function main() {
   );
   check(gone.entries.length === 0, "a missing repo yields no rows", `${gone.entries.length} rows`);
   check(gone.notes.length > 0, "a missing repo is reported to the admin", `notes=${gone.notes.length}`);
+
+  console.log("\nmaintainers without owner credentials");
+  console.log("-".repeat(60));
+
+  // The claim under test: a campaign can exclude supervisors with no token that
+  // has push on the repositories, because the organisation declares them.
+  const declared = new Set(["pascalbaljet"]);
+  const asDeclared = await classifySupervisor(
+    "pascalbaljet",
+    [{ owner: "inertiajs", repo: "inertia" }],
+    TOKEN,
+    declared,
+  );
+  check(
+    asDeclared.status === "maintainer",
+    "a declared maintainer is excluded with no push access",
+    asDeclared.reason,
+  );
+
+  const asCodeowner = await classifySupervisor(
+    "pascalbaljet",
+    [{ owner: "inertiajs", repo: "inertia" }],
+    TOKEN,
+    new Set(),
+    new Map([["pascalbaljet", "مذكور في CODEOWNERS"]]),
+  );
+  check(
+    asCodeowner.status === "maintainer",
+    "a CODEOWNERS maintainer is excluded with no push access",
+    asCodeowner.reason,
+  );
+
+  const asNobody = await classifySupervisor(
+    "pascalbaljet",
+    [{ owner: "inertiajs", repo: "inertia" }],
+    TOKEN,
+    new Set(),
+  );
+  check(
+    asNobody.status === "unverified",
+    "with no declared list and no push, nobody is auto-approved",
+    asNobody.status,
+  );
+
+  // CODEOWNERS mostly names teams, which cannot be resolved from outside the
+  // org. Skipping them is deliberate; treating @org/team as a person is not.
+  check(
+    parseCodeowners("*  @nodejs/tsc @bmuenzenmeyer").join(",") === "bmuenzenmeyer",
+    "CODEOWNERS teams are skipped, people are kept",
+    parseCodeowners("*  @nodejs/tsc @bmuenzenmeyer").join(","),
+  );
+
+  const owners = await codeownersMaintainers({ owner: "github", repo: "docs" });
+  check(
+    owners.path === null || owners.logins.length > 0,
+    "a CODEOWNERS lookup resolves or reports nothing",
+    `path=${owners.path} logins=${owners.logins.length}`,
+  );
 
   console.log();
   if (failures > 0) {

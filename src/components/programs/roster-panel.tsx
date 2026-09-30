@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { Check, Pencil, RefreshCw, ShieldOff, Trash2 } from "lucide-react";
 
 import {
   clearRosterAction,
@@ -13,6 +14,7 @@ import { idle } from "@/lib/action-state";
 import type { CandidateRow, RosterSummary } from "@/lib/roster";
 import type { ProgramWithRepos } from "@/lib/repo-ref";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,7 +26,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -62,6 +68,11 @@ function StatusBadge({ status }: { status: CandidateRow["status"] }) {
   );
 }
 
+/** Tooltips need a provider; this panel has no other one. */
+function TooltipScope({ children }: { children: React.ReactNode }) {
+  return <TooltipProvider delayDuration={200}>{children}</TooltipProvider>;
+}
+
 export function RosterPanel({
   program,
   candidates,
@@ -80,6 +91,7 @@ export function RosterPanel({
   const pending = scanning || rechecking;
 
   return (
+    <TooltipScope>
     <div className="space-y-3 border-t pt-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -150,21 +162,31 @@ export function RosterPanel({
         </p>
       ) : null}
 
+      {summary.unverified > 0 ? (
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {summary.unverified} شخصًا يحتاجون مراجعة: لم نتمكن من قراءة صلاحية إشرافهم على مستودعات
+          الحملة. اعتمدهم واحدًا واحدًا بزر «قرار يدوي»، أو أضف توكن بصلاحية إشراف على المستودعات،
+          أو اكتب أسماء المشرفين في خانة «مشرفو الحملة» لتُستبعد تلقائيًا.
+        </p>
+      ) : null}
+
       {candidates.length === 0 ? (
         <p className="rounded-md border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
           لم يُفحص بعد. اضغط «تحديث قائمة المؤهلين» ليقرأ النظام المساهمات المدمجة داخل الفترة
           ويستخرج من يستحق الشهادة.
         </p>
       ) : (
-        <ScrollArea className="max-h-96 rounded-md border">
-          <Table>
-            <TableHeader>
+        /* A plain overflow container, not ScrollArea: with only a max-height the
+           viewport did not clip, so rows spilled out past the border and covered
+           the page. Native overflow is also the horizontal scrollbar for free. */
+        <div className="max-h-[26rem] overflow-auto rounded-md border">
+          <Table className="min-w-[34rem]">
+            <TableHeader className="sticky top-0 z-10 bg-background">
               <TableRow>
                 <TableHead>المشارك</TableHead>
-                <TableHead>الحالة</TableHead>
-                <TableHead className="text-center">مساهمات مدمجة</TableHead>
-                <TableHead>المستودع</TableHead>
-                <TableHead className="w-40">إجراءات</TableHead>
+                <TableHead className="w-40">الحالة</TableHead>
+                <TableHead className="w-28 text-center">مساهمات مدمجة</TableHead>
+                <TableHead className="w-28 text-left">إجراءات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -179,8 +201,7 @@ export function RosterPanel({
               ))}
             </TableBody>
           </Table>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
+        </div>
       )}
 
       {confirmClear ? (
@@ -191,6 +212,7 @@ export function RosterPanel({
         />
       ) : null}
     </div>
+    </TooltipScope>
   );
 }
 
@@ -215,24 +237,42 @@ function CandidateRowView({
           {row.avatarUrl ? (
             // Avatars come from github.com; plain img keeps us off the next/image host list.
             // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={row.avatarUrl}
-              alt=""
-              className="h-6 w-6 rounded-full"
-              loading="lazy"
-            />
+            <img src={row.avatarUrl} alt="" className="h-6 w-6 rounded-full" loading="lazy" />
           ) : null}
           <a
             href={row.profileUrl ?? `https://github.com/${row.githubLogin}`}
             target="_blank"
             rel="noreferrer noopener"
-            className="ltr font-mono text-sm hover:underline"
+            className="ltr truncate font-mono text-sm hover:underline"
           >
             {row.githubLogin}
           </a>
         </div>
-        {row.reason ? (
-          <p className="mt-0.5 text-xs text-muted-foreground">{row.reason}</p>
+        {/* The repo moves under the name: as a column it was the widest thing
+            here, and it pushed the actions off the edge of the card. */}
+        {row.qualifiedIn ? (
+          row.evidenceUrl ? (
+            <a
+              href={row.evidenceUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              title="شاهد المساهمة المدمجة"
+              className="ltr mt-0.5 block truncate font-mono text-xs text-muted-foreground hover:underline"
+            >
+              {row.qualifiedIn}
+            </a>
+          ) : (
+            <span className="ltr mt-0.5 block truncate font-mono text-xs text-muted-foreground">
+              {row.qualifiedIn}
+            </span>
+          )
+        ) : null}
+        {/* Reasons repeat identically across a whole scan, so they are shown in
+            the summary above rather than on all 70 rows. */}
+        {row.reason && row.status !== "unverified" && row.status !== "eligible" ? (
+          <p className="mt-0.5 truncate text-xs text-muted-foreground" title={row.reason}>
+            {row.reason}
+          </p>
         ) : null}
       </TableCell>
 
@@ -242,96 +282,116 @@ function CandidateRowView({
 
       <TableCell className="text-center tabular-nums">{row.mergedPrCount}</TableCell>
 
-      <TableCell className="text-xs">
-        {row.qualifiedIn ? (
-          row.evidenceUrl ? (
-            <a
-              href={row.evidenceUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="ltr font-mono hover:underline"
-            >
-              {row.qualifiedIn}
-            </a>
-          ) : (
-            <span className="ltr font-mono">{row.qualifiedIn}</span>
-          )
-        ) : (
-          "—"
-        )}
-      </TableCell>
-
-      <TableCell>
+      <TableCell className="text-left">
         {claimed ? (
           <span className="text-xs text-muted-foreground">—</span>
         ) : deciding ? (
-          <div className="flex flex-wrap items-center gap-1">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                const data = new FormData();
-                data.set("candidateId", String(row.id));
-                data.set("decision", "eligible");
-                decideCandidateAction(data);
-                setDeciding(false);
-              }}
-            >
-              مؤهل
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                const data = new FormData();
-                data.set("candidateId", String(row.id));
-                data.set("decision", "maintainer");
-                decideCandidateAction(data);
-                setDeciding(false);
-              }}
-            >
-              مشرف
-            </Button>
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  aria-label="اعتماد كمؤهل"
+                  onClick={() => {
+                    const data = new FormData();
+                    data.set("candidateId", String(row.id));
+                    data.set("decision", "eligible");
+                    decideCandidateAction(data);
+                    setDeciding(false);
+                  }}
+                >
+                  <Check className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>اعتماد كمؤهل</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  aria-label="اعتماد كمشرف"
+                  onClick={() => {
+                    const data = new FormData();
+                    data.set("candidateId", String(row.id));
+                    data.set("decision", "maintainer");
+                    decideCandidateAction(data);
+                    setDeciding(false);
+                  }}
+                >
+                  <ShieldOff className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>اعتماد كمشرف (غير مؤهل)</TooltipContent>
+            </Tooltip>
             <Button type="button" size="sm" variant="ghost" onClick={() => setDeciding(false)}>
               إلغاء
             </Button>
           </div>
         ) : (
-          <div className="flex items-center gap-1">
-            <form action={recheckAction}>
-              <input type="hidden" name="programId" value={programId} />
-              <input type="hidden" name="candidateId" value={row.id} />
-              <Button type="submit" size="sm" variant="ghost" disabled={busy}>
-                إعادة الفحص
-              </Button>
-            </form>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => setDeciding(true)}
-              disabled={busy}
-            >
-              قرار يدوي
-            </Button>
-            <form
-              action={async (formData) => {
-                formData.set("candidateId", String(row.id));
-                await removeCandidateAction(formData);
-              }}
-            >
-              <Button
-                type="submit"
-                size="sm"
-                variant="ghost"
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                disabled={busy}
-              >
-                حذف
-              </Button>
-            </form>
+          <div className="flex items-center justify-end gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <form action={recheckAction}>
+                  <input type="hidden" name="programId" value={programId} />
+                  <input type="hidden" name="candidateId" value={row.id} />
+                  <Button
+                    type="submit"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8"
+                    aria-label="إعادة الفحص من GitHub"
+                    disabled={busy}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </form>
+              </TooltipTrigger>
+              <TooltipContent>إعادة الفحص من GitHub</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  aria-label="قرار يدوي"
+                  onClick={() => setDeciding(true)}
+                  disabled={busy}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>قرار يدوي</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <form
+                  action={async (formData) => {
+                    formData.set("candidateId", String(row.id));
+                    await removeCandidateAction(formData);
+                  }}
+                >
+                  <Button
+                    type="submit"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    aria-label="حذف من القائمة"
+                    disabled={busy}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </form>
+              </TooltipTrigger>
+              <TooltipContent>حذف من القائمة</TooltipContent>
+            </Tooltip>
           </div>
         )}
       </TableCell>

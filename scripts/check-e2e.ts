@@ -10,11 +10,12 @@
  * and renders PDFs, so it must never run against the database you actually care
  * about. The scratch DB lives in a temp directory and is deleted afterwards.
  *
- * Why it builds for itself, even though `next build` is usually separate:
- * an incremental build over an existing .next can emit a broken server chunk
- * (pages 500 with `a[d] is not a function`) when a server is running against the
- * same directory. That is a confusing way to fail, and it has bitten this repo
- * twice. Building clean here costs a few seconds and removes the whole class.
+ * Why it builds for itself, into its own directory: `next dev` and `next build`
+ * both write to .next by default, so building while a dev server is open
+ * corrupts it. The symptom is pages 500-ing with `a[d] is not a function` or a
+ * build failing on `Cannot find module for page: /_document` — both read as a
+ * broken feature rather than a clobbered build directory. NEXT_DIST_DIR keeps the
+ * two independent so this harness and `npm run dev` can run side by side.
  *
  *   E2E_KEEP=1       keep the scratch directory for inspection
  *   E2E_SKIP_BUILD=1 reuse an existing build (faster, less trustworthy)
@@ -77,6 +78,11 @@ async function main() {
     GITHUB_SCAN_TOKEN: "",
     GITHUB_CLIENT_ID: "",
     GITHUB_CLIENT_SECRET: "",
+    // Its own build directory. `next dev` and `next build` share .next by
+    // default, so building here while the developer has `npm run dev` open
+    // corrupts their dev server — and ours. This keeps them independent, which
+    // is what lets the two run at the same time.
+    NEXT_DIST_DIR: ".next-e2e",
   };
 
   console.log(`\nscratch database: ${dbUrl}`);
@@ -86,11 +92,13 @@ async function main() {
   try {
     if (process.env.E2E_SKIP_BUILD) {
       rule("build (skipped)");
-      console.log("  reusing the existing .next — E2E_SKIP_BUILD=1");
+      console.log("  reusing the existing .next-e2e — E2E_SKIP_BUILD=1");
     } else {
       rule("build");
-      await rm(resolve(ROOT, ".next"), { recursive: true, force: true });
-      if ((await run("npx", ["next", "build"])) !== 0) throw new Error("build failed");
+      await rm(resolve(ROOT, ".next-e2e"), { recursive: true, force: true });
+      if ((await run("npx", ["next", "build"], { NEXT_DIST_DIR: ".next-e2e" })) !== 0) {
+        throw new Error("build failed");
+      }
     }
 
     await mkdir(join(scratch, "storage"), { recursive: true });

@@ -482,6 +482,142 @@ export async function collaboratorRole(
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * CODEOWNERS
+ *
+ * The only automatic maintainer signal that works on a public repository
+ * without push access. Absent in most repositories, so it is an accelerator and
+ * never the whole answer — which is why campaigns also carry a declared list.
+ * ------------------------------------------------------------------ */
+
+/** GitHub looks for the file at exactly these three paths, in this order. */
+const CODEOWNERS_PATHS = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"] as const;
+
+/**
+ * Pull `@user` mentions out of a CODEOWNERS file.
+ *
+ * Team mentions (`@org/team`) are skipped: a team is not a person, and GitHub
+ * exposes team membership only to members of that team.
+ */
+export function parseCodeowners(content: string): string[] {
+  const logins = new Set<string>();
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    // Format: <pattern> <owner> [<owner>...]
+    for (const token of line.split(/\s+/).slice(1)) {
+      if (!token.startsWith("@")) continue;
+      const login = token.slice(1).replace(/[+]/g, "").toLowerCase();
+      // Skip teams (`@org/team`) and anything that still looks like a path.
+      if (!login || login.includes("/") || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(login)) continue;
+      logins.add(login);
+    }
+  }
+  return [...logins];
+}
+
+export interface CodeownersResult {
+  /** Logins the file names, lowercased. Empty when there is no usable file. */
+  logins: string[];
+  /** Where it was found, for the admin. */
+  path: string | null;
+}
+
+/**
+ * Read CODEOWNERS from a public repository.
+ *
+ * Served from raw.githubusercontent.com, so it needs no token and no scope at
+ * all — the point of using it. Resolves to an empty result when the file is
+ * absent, which is the common case and not an error.
+ */
+export async function codeownersMaintainers(
+  repo: RepoRef,
+  defaultBranch?: string,
+): Promise<CodeownersResult> {
+  const branch = defaultBranch ?? (await defaultBranchFor(repo));
+  if (!branch) return { logins: [], path: null };
+
+  for (const path of CODEOWNERS_PATHS) {
+    const url = `https://raw.githubusercontent.com/${repo.owner}/${repo.repo}/${branch}/${path}`;
+    try {
+      const response = await fetch(url, {
+        headers: { "User-Agent": "itqan-cert-checker" },
+        redirect: "follow",
+      });
+      if (!response.ok) continue;
+      const logins = parseCodeowners(await response.text());
+      // An empty file is no help; keep looking rather than reporting it found.
+      if (logins.length > 0) return { logins, path };
+    } catch {
+      // Network trouble on one path should not abort the scan.
+    }
+  }
+  return { logins: [], path: null };
+}
+
+/** The repository's default branch. Public repos need no token for this. */
+async function defaultBranchFor(repo: RepoRef): Promise<string | null> {
+  try {
+    const response = await fetch(`${API}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "itqan-cert-checker",
+      },
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { default_branch?: string };
+    return data.default_branch ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export interface SupervisorVerdict {
+  status: CandidateStatus;
+  reason: string;
+}
+
+/**
+ * Decide whether someone supervises a set of repositories, cheapest signal
+ * first. Shared by the bulk scan and the per-row re-check, so a row settled by
+ * hand and the same row settled by a scan can never disagree.
+ *
+ * `codeowners` is keyed by lowercased login and carries the reason to show.
+ */
+export async function classifySupervisor(
+  login: string,
+  repos: RepoRef[],
+  token: string | null,
+  declared: Set<string>,
+  codeowners: Map<string, string> = new Map(),
+): Promise<SupervisorVerdict> {
+  const key = login.toLowerCase().replace(/^@/, "");
+
+  if (declared.has(key)) {
+    return { status: "maintainer", reason: "مشرف معلن في الحملة" };
+  }
+  const owned = codeowners.get(key);
+  if (owned) {
+    return { status: "maintainer", reason: owned };
+  }
+  if (!token) {
+    return { status: "unverified", reason: "تعذّر التحقق من صلاحية الإشراف؛ يحتاج مراجعة يدوية" };
+  }
+
+  let unknown = false;
+  for (const repo of repos) {
+    const role = await collaboratorRole(repo, login, token);
+    if (role === "admin" || role === "maintain") {
+      return { status: "maintainer", reason: `مشرف على ${repo.owner}/${repo.repo}` };
+    }
+    if (role === "unknown") unknown = true;
+  }
+
+  return unknown
+    ? { status: "unverified", reason: "تعذّر التحقق من صلاحية الإشراف؛ يحتاج مراجعة يدوية" }
+    : { status: "eligible", reason: "ليست له صلاحية إشراف على مستودعات الحملة" };
+}
+
 export interface RosterEntry {
   login: string;
   mergedPrCount: number;
@@ -504,13 +640,42 @@ export interface RosterScan {
  * in order and the first one that qualifies a person wins, so the evidence shown
  * to the admin is the repo we actually confirmed rather than an arbitrary one.
  */
+export interface RosterScanOptions extends EligibilityWindow {
+  /**
+   * Maintainers the admin declared for this campaign.
+   *
+   * Checked before anything GitHub can tell us, because it is the only signal
+   * that works with no token and no push access — and the one the organisation
+   * actually controls.
+   */
+  declaredMaintainers?: string[];
+  /** Set false to skip CODEOWNERS lookups entirely. */
+  useCodeowners?: boolean;
+  /** Set false to skip the push-based collaborator probe. */
+  useCollaborators?: boolean;
+}
+
 export async function scanRoster(
   window: EligibilityWindow,
   accessToken: string,
+  opts: { declaredMaintainers?: string[]; useCodeowners?: boolean; useCollaborators?: boolean } = {},
   onProgress?: (message: string) => void,
 ): Promise<RosterScan> {
   const notes: string[] = [];
   const entries = new Map<string, RosterEntry>();
+
+  const declared = new Set(
+    (opts.declaredMaintainers ?? []).map((login) => login.toLowerCase().replace(/^@/, "")),
+  );
+  // CODEOWNERS is free (no token, no scope) and strictly additive, so it runs
+  // unless explicitly disabled. The collaborator probe costs a request per
+  // person, so it only runs when there is a token that could answer.
+  const useCodeowners = opts.useCodeowners !== false;
+  const useCollaborators = opts.useCollaborators !== false;
+
+  /** Everyone who supervises any listed repo, gathered from every source. */
+  const maintainers = new Map<string, string>();
+  let codeownersFound = false;
 
   for (const repo of window.repos) {
     onProgress?.(`${repo.owner}/${repo.repo}: جارٍ قراءة المساهمات…`);
@@ -535,6 +700,20 @@ export async function scanRoster(
     }
     onProgress?.(`${repo.owner}/${repo.repo}: ${scan.authors.length} مساهماً`);
 
+    // Supervisory signals for this repo, cheapest and most reliable first.
+    // Collected before the per-author loop so the cost is one lookup per repo
+    // rather than one per person.
+    if (useCodeowners) {
+      const owners = await codeownersMaintainers(repo);
+      if (owners.logins.length > 0) {
+        codeownersFound = true;
+        onProgress?.(`${repo.owner}/${repo.repo}: ${owners.path}`);
+        for (const login of owners.logins) {
+          if (!maintainers.has(login)) maintainers.set(login, `مذكور في ${owners.path}`);
+        }
+      }
+    }
+
     for (const author of scan.authors) {
       const key = author.login.toLowerCase();
       const existing = entries.get(key);
@@ -544,21 +723,56 @@ export async function scanRoster(
         continue;
       }
 
-      // Anyone holding admin or maintain on ANY listed repo is out.
+      const key2 = author.login.toLowerCase();
+
+      // 1. Declared by the campaign. Authoritative, needs no token.
+      if (declared.has(key2)) {
+        entries.set(key, {
+          login: author.login,
+          mergedPrCount,
+          qualifiedIn: null,
+          evidenceUrl: author.sample?.htmlUrl || null,
+          status: "maintainer",
+          reason: "مشرف معلن في الحملة",
+        });
+        continue;
+      }
+
+      // 2. Named in CODEOWNERS somewhere we read it.
+      const codeowned = maintainers.get(key2);
+      if (codeowned) {
+        entries.set(key, {
+          login: author.login,
+          mergedPrCount,
+          qualifiedIn: null,
+          evidenceUrl: author.sample?.htmlUrl || null,
+          status: "maintainer",
+          reason: codeowned,
+        });
+        continue;
+      }
+
+      // 3. Ask GitHub directly, when the token can answer.
       let role: RoleVerdict = "member";
       let blocker: RepoRef | null = null;
-      for (const listed of window.repos) {
-        const found = await collaboratorRole(listed, author.login, accessToken);
-        if (found === "admin" || found === "maintain") {
-          role = found;
-          blocker = listed;
-          break;
+      if (useCollaborators) {
+        for (const listed of window.repos) {
+          const found = await collaboratorRole(listed, author.login, accessToken);
+          if (found === "admin" || found === "maintain") {
+            role = found;
+            blocker = listed;
+            break;
+          }
+          if (found === "unknown") role = "unknown";
         }
-        if (found === "unknown") role = "unknown";
       }
 
       const status: CandidateStatus =
-        role === "admin" || role === "maintain" ? "maintainer" : role === "unknown" ? "unverified" : "eligible";
+        role === "admin" || role === "maintain"
+          ? "maintainer"
+          : role === "unknown"
+            ? "unverified"
+            : "eligible";
       const reason =
         status === "maintainer"
           ? `مشرف على ${blocker!.owner}/${blocker!.repo}`
@@ -575,6 +789,14 @@ export async function scanRoster(
         reason,
       });
     }
+  }
+
+  if (declared.size === 0 && !codeownersFound && useCodeowners) {
+    notes.push(
+      "لا يوجد ملف CODEOWNERS يذكر أشخاصًا في أي مستودع منمستودعات الحملة — " +
+        "غالبًا لأنه يذكر الفرق (@org/team) ولا يمكن حلّها من خارج المؤسسة. " +
+        "أضف أسماء مشرفي الحملة في خانة «مشرفو الحملة» ليُستبعدوا تلقائيًا.",
+    );
   }
 
   return { entries: [...entries.values()], notes };

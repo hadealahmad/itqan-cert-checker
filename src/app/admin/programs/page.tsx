@@ -1,5 +1,10 @@
 import { ProgramsManager } from "@/components/programs/programs-manager";
-import { listPrograms, listTemplates, syncTemplateCatalogue } from "@/lib/programs";
+import {
+  listMaintainers,
+  listPrograms,
+  listTemplates,
+  syncTemplateCatalogue,
+} from "@/lib/programs";
 import { listCandidates, rosterSummary } from "@/lib/roster";
 import { scanConfigured } from "@/lib/github";
 
@@ -22,7 +27,11 @@ export default function AdminProgramsPage() {
   const rosters = Object.fromEntries(
     programs.map((program) => [
       program.id,
-      { candidates: listCandidates(program.id), summary: rosterSummary(program.id) },
+      {
+        candidates: listCandidates(program.id),
+        summary: rosterSummary(program.id),
+        maintainers: listMaintainers(program.id),
+      },
     ]),
   );
 

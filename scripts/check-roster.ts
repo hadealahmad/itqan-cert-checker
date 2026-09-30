@@ -64,7 +64,7 @@ async function main() {
     const program = createProgram({
       nameAr: "حملة الفحص",
       templateId: 1,
-      contributionFrom: "2025-01-01",
+      contributionFrom: "2020-01-01",
       contributionTo: "2026-12-31",
       // A public repo this token has no push on — the honest worst case.
       repos: [{ owner: "inertiajs", repo: "inertia" }],
@@ -84,6 +84,8 @@ async function main() {
         contributionTo: program.contributionTo,
       },
       TOKEN,
+      // Declared, so the roster proves the token-free path works.
+      { declaredMaintainers: [] },
     );
     check(scan.entries.length > 0, "found contributors", `${scan.entries.length} rows`);
     check(
