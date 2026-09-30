@@ -1,11 +1,15 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 
 import { deleteProgramAction, saveProgramAction } from "@/lib/actions/programs";
 import { idle } from "@/lib/action-state";
 import { parseRepoLines, type ProgramWithRepos } from "@/lib/repo-ref";
 import { toISODate } from "@/lib/dates";
+
+import { RosterPanel } from "@/components/programs/roster-panel";
+
+import type { CandidateRow, RosterSummary } from "@/lib/roster";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,16 +40,26 @@ export interface TemplateOption {
   nameAr: string;
 }
 
+export interface RosterData {
+  candidates: CandidateRow[];
+  summary: RosterSummary;
+}
+
 export function ProgramsManager({
   programs,
   templates,
+  rosters,
+  scanConfigured,
 }: {
   programs: ProgramWithRepos[];
   templates: TemplateOption[];
+  rosters: Record<number, RosterData>;
+  scanConfigured: boolean;
 }) {
   const [editing, setEditing] = useState<ProgramWithRepos | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<ProgramWithRepos | null>(null);
+  const [showRoster, setShowRoster] = useState<number | null>(null);
 
   return (
     <div className="space-y-4">
@@ -87,6 +101,16 @@ export function ProgramsManager({
                   </p>
                 </div>
                 <div className="flex gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowRoster(showRoster === program.id ? null : program.id)}
+                  >
+                    {showRoster === program.id ? "إخفاء القائمة" : "قائمة المؤهلين"}
+                    {rosters[program.id]?.summary.total
+                      ? ` (${rosters[program.id]!.summary.total})`
+                      : ""}
+                  </Button>
                   <Button variant="outline" size="sm" onClick={() => setEditing(program)}>
                     تعديل
                   </Button>
@@ -100,6 +124,25 @@ export function ProgramsManager({
                   </Button>
                 </div>
               </CardContent>
+              {showRoster === program.id ? (
+                <CardContent className="pt-0">
+                  <RosterPanel
+                    program={program}
+                    candidates={rosters[program.id]?.candidates ?? []}
+                    summary={
+                      rosters[program.id]?.summary ?? {
+                        total: 0,
+                        eligible: 0,
+                        unverified: 0,
+                        maintainer: 0,
+                        claimed: 0,
+                        excluded: 0,
+                      }
+                    }
+                    scanConfigured={scanConfigured}
+                  />
+                </CardContent>
+              ) : null}
             </Card>
           ))}
         </div>
@@ -141,6 +184,13 @@ function ProgramDialog({
     program ? program.repos.map((repo) => `${repo.owner}/${repo.repo}`).join("\n") : "",
   );
   const [templateId, setTemplateId] = useState(String(program?.templateId ?? templates[0]?.id ?? ""));
+
+  // Close on success, so the saved campaign is visible in the list behind. Left
+  // open, the overlay blocks the whole page and the result is only a line of
+  // text nobody asked for.
+  useEffect(() => {
+    if (state.ok) onOpenChange(false);
+  }, [state.ok, onOpenChange]);
 
   const parsed = parseRepoLines(reposText);
   const duplicates = new Set(

@@ -251,6 +251,14 @@ async function main() {
     await shot(page, "13-program-dialog");
     await page.click('button[type="submit"]:has-text("حفظ")');
     await page.waitForTimeout(2000);
+    // The dialog must close on success, or its overlay blocks the whole page.
+    if (await page.locator('[data-slot="dialog-overlay"]').count()) {
+      fail("create dialog closes on success", "overlay still present");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(500);
+    } else {
+      ok("create dialog closes on success");
+    }
     if (await page.getByText("حملة اختبار").count()) ok("create program with parsed repos");
     else fail("create program with parsed repos", "not listed");
 
@@ -261,6 +269,31 @@ async function main() {
       fail("repos parsed", `saw "${repoText.slice(0, 60)}"`);
     }
     await shot(page, "14-programs");
+
+    /* ---------------- roster panel ---------------- */
+    console.log("\nroster");
+    await page.click('button:has-text("قائمة المؤهلين")');
+    await page.waitForTimeout(700);
+    if (await page.getByText("قائمة المؤهلين").count()) ok("roster panel opens");
+    else fail("roster panel opens", "not rendered");
+
+    // With no scan token configured the button must be disabled and say why,
+    // rather than returning an empty list that reads like "nobody qualifies".
+    const scanBtn = page.locator('button:has-text("تحديث قائمة المؤهلين")');
+    if (await scanBtn.count()) {
+      if (await scanBtn.isDisabled()) ok("scan button disabled without GITHUB_SCAN_TOKEN");
+      else fail("scan button disabled without GITHUB_SCAN_TOKEN", "enabled");
+    } else {
+      fail("scan button present", "not found");
+    }
+    if (await page.getByText("GITHUB_SCAN_TOKEN").count()) {
+      ok("roster explains the missing credential");
+    } else {
+      fail("roster explains the missing credential", "no hint shown");
+    }
+    if (await page.getByText("لم يُفحص بعد").count()) ok("empty roster invites a scan");
+    else fail("empty roster invites a scan", "no empty state");
+    await shot(page, "15-roster");
 
     /* ---------------- duplicate rule ---------------- */
     console.log("\nduplicates");

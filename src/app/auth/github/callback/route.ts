@@ -6,6 +6,7 @@ import { setParticipantSession } from "@/lib/session";
 import { recordEligibility, upsertGithubUser } from "@/lib/certs";
 import { activePrograms } from "@/lib/programs";
 import { checkEligibility, exchangeCode, fetchProfile } from "@/lib/github";
+import { attachGithubIdentity, findCandidate } from "@/lib/roster";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,13 @@ export async function GET(request: Request) {
     eligible = verdict.error ? false : verdict.eligible;
   } catch {
     eligible = false;
+  }
+
+  // Reconcile this person against the roster a scan produced: fill in what only
+  // they can supply (numeric id, avatar) so the admin's list shows who has
+  // actually turned up, and their claim can tick the row off.
+  if (findCandidate(program.id, profile.login)) {
+    attachGithubIdentity(program.id, profile.login, profile.githubId, profile.avatarUrl);
   }
 
   recordEligibility(user.id, eligible);

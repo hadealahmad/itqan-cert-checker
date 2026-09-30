@@ -88,6 +88,66 @@ caller's permission level on a *public* repo comes back from a plain repo read,
 so there is no `repo` scope and no scary consent screen. The access token is
 used during the callback and never stored.
 
+### The roster: who is eligible, before anyone logs in
+
+Rather than discovering people one login at a time, a campaign can be scanned.
+`تحديث قائمة المؤهلين` reads the merged PRs in the window, works out who
+supervises each listed repo, and writes the result to a roster the admin can
+read. Each person then claims their own certificate when they sign in, which
+ticks their row off, so the list doubles as a progress tracker.
+
+Rows carry one of five states: `مؤهل`, `يحتاج مراجعة`, `مشرف`, `استلم شهادته`,
+`مستبعد`. The admin can settle any row by hand — that is what "update one by one"
+means — and a re-scan never overwrites a decision a human made, nor unlinks a
+claimed certificate.
+
+Two deliberate choices:
+
+- **`يحتاج مراجعة` is a real state, not a failure.** Reading whether someone
+  supervises a repo needs push access to it. Without that, GitHub answers 403 and
+  we do not know — and recording "unknown" as "eligible" would hand certificates
+  to maintainers. Those rows wait for a decision instead.
+- **A capped scan says so.** Search returns 100 results a call and is limited to
+  30 calls/minute, so a scan reads at most `ROSTER_MAX_PRS_PER_REPO` merged PRs
+  per repo. When that cap bites, the admin is told the list is incomplete rather
+  than shown a quietly short one.
+
+#### The two GitHub credentials
+
+They are different things, and confusing them is the easy mistake here:
+
+| | `GITHUB_CLIENT_ID` / `_SECRET` | `GITHUB_SCAN_TOKEN` |
+|---|---|---|
+| What it is | An OAuth App's id and secret | An access token (e.g. `gh auth token`) |
+| Whose | Your app's | Yours — a person, or an app installation |
+| Used for | A participant proving who they are | Reading contributions and supervisors |
+| Issues a participant's token | Yes — GitHub, in their browser | — |
+
+The client id is **not** a token. Only an OAuth App can issue a token to a
+participant, and that token is what stops someone claiming another person's
+certificate. The scan token cannot do that job — it is your credential, so
+anyone "signing in" with it would be signing in as you.
+
+#### Why the scan needs its own token
+
+Reading whether *someone else* supervises a repository requires push access to
+it. That is why a scan cannot reuse a participant's OAuth token: such a token
+can only ever report the caller's own permissions.
+
+Because every campaign repository is public, the two halves degrade differently,
+and it is worth being precise about which half is which:
+
+- **Counting contributions works with any token.** Public repositories are
+  readable without any scope, so the search that finds merged PRs is never the
+  problem.
+- **Settling who supervises a repository needs push.** Without it GitHub answers
+  403 and we do not know, so those people are recorded as `يحتاج مراجعة` rather
+  than approved.
+
+A token belonging to someone who administers the listed repositories therefore
+works fully, and `تحديث قائمة المؤهلين` names the repositories it cannot verify
+*before* scanning, so a wall of review rows is never a surprise.
+
 ### How the check is implemented
 
 Two things are easy to get wrong, so both are pinned down here:
@@ -139,6 +199,7 @@ cd node_modules/better-sqlite3 && npx node-gyp rebuild --release
 | `CERT_PREFIX` | Printed before the serial, e.g. `ITQ` → `ITQ-2026-1234` |
 | `CERT_CODE_YEAR` | First four digits of every code. Default `2026` |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | From your GitHub OAuth App. Empty means participant sign-in is hidden |
+| `GITHUB_SCAN_TOKEN` | A GitHub *token* (e.g. `gh auth token`) for roster scans. Empty hides the scan and says why |
 
 Gender is per-user, not an environment setting — it lives on the user record and
 is editable from `/admin/users`.
@@ -218,6 +279,7 @@ wants to try them. Verification is not logged and not rate-limited; see
 | `npm run check:assets` | Assert every asset box matches the Figma node it came from |
 | `npm run check:github` | Exercise the eligibility check against the real GitHub API (`GITHUB_TOKEN=<PAT>`) |
 | `npm run check:e2e` | End-to-end browser test on a throwaway database (see below) |
+| `npm run check:roster` | Scan a real public repo and verify the roster is stored correctly |
 | `npm run figma:sync` | Re-extract artwork and text geometry from Figma |
 | `npm run typecheck` | `tsc --noEmit` |
 
@@ -243,14 +305,24 @@ rasterisation noise).
 ### End-to-end test
 
 ```bash
-npm run build
 npm run check:e2e
 ```
 
-This is the one to reach for. It creates a throwaway database in a temp
-directory, migrates and seeds it, starts the built server against **that**
-database, runs the browser test, then deletes the directory. Your real
+This is the one to reach for. It builds, creates a throwaway database in a temp
+directory, migrates and seeds it, starts the server against **that** database,
+runs the browser test, then deletes the directory. Your real
 `data/cert-checker.db` is never opened — verified by checksum in review.
+
+It builds for itself even though `next build` is usually a separate step. An
+incremental build over an existing `.next` can emit a broken server chunk if
+anything is serving that directory, and the symptom is pages 500-ing with
+`a[d] is not a function` — which reads like a broken feature rather than a stale
+build. That has happened here twice; building clean removes the whole class. Pass
+`E2E_SKIP_BUILD=1` to reuse a build and go faster.
+
+The harness also pins the GitHub credentials to empty, so a token exported in
+your shell cannot change what the roster checks are testing. The credentialed
+path is covered separately by `check:roster`.
 
 Drives a real browser through login → create user (as أنثى) → bulk add → issue
 certificate → download PDF → assert the PDF carries the feminine wording and
@@ -368,6 +440,10 @@ recreate themselves on demand, so losing it costs nothing.
 - `check-github.ts` needs a PAT because the permission probe must see a real
   caller's rights. With a PAT the "no access" branches are still meaningful; it
   just cannot prove the maintainer branch.
+- `check-roster.ts` runs a real scan against a public repo and checks what lands
+  in the database: bots excluded, logins lowercased, nothing auto-approved
+  without push access, and a manual ruling surviving a re-scan. It writes to a
+  throwaway database.
 - Migrations back one-off: `drizzle/` carries the whole history, and
   `npm run db:migrate` is all a fresh clone needs.
 

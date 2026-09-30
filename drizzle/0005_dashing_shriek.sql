@@ -1,0 +1,1 @@
+ALTER TABLE `program_candidates` ADD `is_manual` integer DEFAULT 0 NOT NULL;

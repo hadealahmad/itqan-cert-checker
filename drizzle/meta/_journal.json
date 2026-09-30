@@ -29,6 +29,20 @@
       "when": 1790601528362,
       "tag": "0003_misty_thunderbolt_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790607162101,
+      "tag": "0004_sweet_valkyrie",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790608696364,
+      "tag": "0005_dashing_shriek",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,12 @@ export interface ActionState {
   message: string;
   /** Field-level messages, keyed by input name. */
   errors?: Record<string, string>;
+  /**
+   * Things the admin should read but that are not a failure — a truncated scan,
+   * a repo GitHub would not let us read. Kept separate from `message` so a
+   * partial success does not read as a failure.
+   */
+  notes?: string[];
 }
 
 export const idle: ActionState = { ok: false, message: "" };

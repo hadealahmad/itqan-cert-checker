@@ -157,9 +157,90 @@ export const certificates = sqliteTable(
   ],
 );
 
+/**
+ * What a scan concluded about one candidate in one campaign.
+ *
+ * `unverified` exists on purpose. Deciding whether someone maintains a repo
+ * needs push access to that repo; when we do not have it GitHub answers 403 and
+ * we genuinely do not know. Recording that as "eligible" would quietly hand out
+ * certificates to maintainers, so it becomes a row the admin settles by hand.
+ */
+export const CANDIDATE_STATUSES = [
+  /** Qualifies: a merged PR in the window, and not a maintainer. */
+  "eligible",
+  /** Confirmed maintainer of a listed repo — never eligible. */
+  "maintainer",
+  /** Contributed, but their permission level could not be read. */
+  "unverified",
+  /** Already claimed; linked to a certificate below. */
+  "claimed",
+  /** Removed by the admin. */
+  "excluded",
+] as const;
+export type CandidateStatus = (typeof CANDIDATE_STATUSES)[number];
+
+/**
+ * One person a campaign scan found, before they have ever logged in.
+ *
+ * This is the roster: it exists so the admin can see who is expected to claim,
+ * instead of discovering people one login at a time. Claiming a certificate
+ * flips the row to `claimed` and links it, so the list doubles as a progress
+ * tracker. Rows survive a later scan that no longer sees the person — the scan
+ * upserts what it finds and never deletes, so a claimed certificate cannot be
+ * orphaned by a re-run.
+ */
+export const programCandidates = sqliteTable(
+  "program_candidates",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    programId: integer("program_id")
+      .notNull()
+      .references(() => programs.id, { onDelete: "cascade" }),
+
+    /** Lowercased, so lookups are case-insensitive on GitHub's own terms. */
+    githubLogin: text("github_login").notNull(),
+    /** Null until the person signs in and we learn their numeric id. */
+    githubId: integer("github_id"),
+    avatarUrl: text("avatar_url"),
+    profileUrl: text("profile_url"),
+
+    status: text("status").$type<CandidateStatus>().notNull().default("unverified"),
+    /**
+     * True once an admin has ruled on this row by hand.
+     *
+     * A scan will not overwrite a ruling, because the whole point of the manual
+     * button is to settle the rows a scan could not decide. Without this flag a
+     * re-scan would silently undo the admin's work and push the row back into the
+     * review queue. A deliberate re-check clears it, since that *is* a fresh
+     * answer.
+     */
+    isManual: integer("is_manual").notNull().default(0),
+    /** Human-readable justification, shown in the admin table. */
+    reason: text("reason"),
+
+    /** Merged PRs found in the window, summed across the listed repos. */
+    mergedPrCount: integer("merged_pr_count").notNull().default(0),
+    /** Which listed repo qualified them, and a PR to look at. */
+    qualifiedIn: text("qualified_in"),
+    evidenceUrl: text("evidence_url"),
+
+    firstSeenAt: text("first_seen_at").notNull().default(now),
+    checkedAt: text("checked_at").notNull().default(now),
+    claimedAt: text("claimed_at"),
+    certificateId: integer("certificate_id").references(() => certificates.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [
+    uniqueIndex("program_candidates_unique_idx").on(t.programId, t.githubLogin),
+    index("program_candidates_status_idx").on(t.programId, t.status),
+  ],
+);
+
 export type Template = typeof templates.$inferSelect;
 export type NewTemplate = typeof templates.$inferInsert;
 export type Program = typeof programs.$inferSelect;
+export type ProgramCandidate = typeof programCandidates.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Certificate = typeof certificates.$inferSelect;

@@ -20,7 +20,8 @@
     "check:copy": "tsx scripts/check-copy.ts",
     "check:assets": "tsx scripts/check-assets.ts",
     "check:github": "tsx scripts/check-github.ts",
-    "check:e2e": "tsx scripts/check-e2e.ts"
+    "check:e2e": "tsx scripts/check-e2e.ts",
+    "check:roster": "tsx scripts/check-roster.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

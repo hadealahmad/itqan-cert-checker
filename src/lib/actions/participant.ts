@@ -19,6 +19,7 @@ import {
 import { GENDERS } from "@/lib/gender-text";
 import { deleteRenderedFiles } from "@/lib/render";
 import { getProgram } from "@/lib/programs";
+import { markCandidateClaimed } from "@/lib/roster";
 
 /**
  * Read the participant cookie inline: this file is a "use server" module that
@@ -92,6 +93,14 @@ export async function claimCertificateAction(
       source: "self",
       issuedOn: new Date().toISOString().slice(0, 10),
     });
+
+    // Tick the person off the campaign roster, so the admin's list reflects
+    // reality instead of still showing them as waiting.
+    if (user.githubLogin) {
+      markCandidateClaimed(programId, user.githubLogin, cert.id);
+      revalidatePath("/admin/programs");
+    }
+
     revalidatePath("/my/certificate");
     revalidatePath("/admin/certs");
     revalidatePath("/admin");
